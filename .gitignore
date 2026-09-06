@@ -1,0 +1,6 @@
+target/
+site.db
+site.db-*
+config.toml
+# Content lives in a separate repo (cloned here); not part of this repo
+content/

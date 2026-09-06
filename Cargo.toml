@@ -1,0 +1,74 @@
+[package]
+name = "leafpress"
+version = "0.1.0"
+edition = "2021"
+description = "Full-stack Rust blog engine: Leptos SSR + WASM hydration, markdown content, SQLite comments/likes"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/YXalix/leafpress"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+leptos = { version = "0.8" }
+leptos_router = { version = "0.8" }
+leptos_axum = { version = "0.8", optional = true }
+axum = { version = "0.8", features = ["macros"], optional = true }
+tokio = { version = "1", features = ["full"], optional = true }
+anyhow = { version = "1", optional = true }
+chrono = { version = "0.4", optional = true }
+clap = { version = "4", features = ["derive"], optional = true }
+comrak = { version = "0.29", optional = true }
+console_error_panic_hook = { version = "0.1", optional = true }
+gray_matter = { version = "0.2", optional = true }
+mime_guess = { version = "2", optional = true }
+notify = { version = "7", optional = true }
+parking_lot = { version = "0.12", optional = true }
+rpassword = { version = "7", optional = true }
+rust-embed = { version = "8", optional = true }
+serde = { version = "1", features = ["derive"] }
+sha2 = { version = "0.10", optional = true }
+sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite"], optional = true }
+toml = { version = "0.8", optional = true }
+tower-http = { version = "0.6", features = ["fs"], optional = true }
+wasm-bindgen = "0.2"
+web-sys = { version = "0.3", features = ["Storage", "Window", "Document", "Element", "DomRect", "HtmlElement", "HtmlInputElement"] }
+
+[features]
+default = []
+hydrate = ["leptos/hydrate", "dep:console_error_panic_hook"]
+ssr = [
+  "leptos/ssr",
+  "dep:clap",
+  "dep:leptos_axum",
+  "dep:axum",
+  "dep:tokio",
+  "dep:anyhow",
+  "dep:chrono",
+  "dep:comrak",
+  "dep:gray_matter",
+  "dep:mime_guess",
+  "dep:notify",
+  "dep:parking_lot",
+  "dep:rpassword",
+  "dep:rust-embed",
+  "dep:sha2",
+  "dep:sqlx",
+  "dep:toml",
+  "dep:tower-http",
+]
+
+[package.metadata.leptos]
+bin-target = "leafpress"
+bin-features = ["ssr"]
+lib-features = ["hydrate"]
+output-name = "leafpress"
+site-root = "target/site"
+site-pkg-dir = "pkg"
+style-file = "style/main.css"
+assets-dir = "assets"
+site-addr = "127.0.0.1:3000"
+reload-port = 3001
+
+[profile.release]
+lto = "thin"

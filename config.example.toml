@@ -1,0 +1,8 @@
+# The only required field: /admin login password
+admin_password = "changeme"
+
+# Everything below is optional (shown values are the defaults):
+# site_name = "My Blog"
+# content_dir = "content"
+# database = "site.db"
+# admin_readonly = false   # true = /admin is read-only (cannot create/edit/delete posts or pages); content syncs via git only
