@@ -273,18 +273,19 @@ pub fn spawn_watcher(content_dir: PathBuf, index: SharedIndex) {
 
 /// Periodically fast-forward the content dir from its git remote; the watcher picks up any
 /// changes and hot-reloads. No-op when disabled or the content dir is not a git repo.
-pub fn spawn_git_sync(content_dir: PathBuf, interval_secs: u64) {
+pub fn spawn_git_sync(content_dir: PathBuf, interval_secs: u64, proxy: Option<String>) {
     if interval_secs == 0 || !content_dir.join(".git").exists() {
         return;
     }
     std::thread::spawn(move || loop {
         std::thread::sleep(std::time::Duration::from_secs(interval_secs));
-        match std::process::Command::new("git")
-            .arg("-C")
-            .arg(&content_dir)
-            .args(["pull", "--ff-only", "--quiet"])
-            .output()
-        {
+        let mut cmd = std::process::Command::new("git");
+        cmd.arg("-C").arg(&content_dir);
+        // Explicit proxy control: configured proxy when set, otherwise force direct
+        // (empty value also disables any http_proxy env inherited from the server process)
+        cmd.arg("-c")
+            .arg(format!("http.proxy={}", proxy.as_deref().unwrap_or("")));
+        match cmd.args(["pull", "--ff-only", "--quiet"]).output() {
             Ok(o) if o.status.success() => {}
             Ok(o) => eprintln!(
                 "[content] git pull failed: {}",

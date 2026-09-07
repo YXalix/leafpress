@@ -3,7 +3,7 @@
 A full-stack Rust blog engine — **Leptos** (SSR + WASM hydration) + **Axum** + **SQLite**, shipped as a single self-updating binary. The server never compiles anything.
 
 - Markdown as content — hot-reload on every change, no restart
-- `/admin` for online writing and comment moderation (can be made read-only so content flows only through git)
+- `/admin` as a pure git console: status, auto pull, per-file staging, commit+push, dual-pane diff with inline editing
 - Comments / likes in a single SQLite file; light/dark theme toggle
 - Content decoupled from the program: `content_dir` points at any directory (typically a separate private repo)
 
@@ -12,7 +12,7 @@ A full-stack Rust blog engine — **Leptos** (SSR + WASM hydration) + **Axum** +
 Requires the Rust toolchain, `cargo-leptos`, and the `wasm32-unknown-unknown` target.
 
 ```bash
-cp config.example.toml config.toml    # set site_name and admin_password
+cp config.example.toml config.toml    # set admin_password
 git clone <content-repo> content      # your content repo; or start with an empty content/
 cargo leptos watch
 ```
@@ -23,10 +23,11 @@ Runs at http://127.0.0.1:3000 (admin at `/admin`).
 
 | Key | Default | Purpose |
 |---|---|---|
-| `site_name` | `"My Site"` | site title |
+| `site_name` | `"My Blog"` | site title |
 | `content_dir` | `"content"` | where the markdown lives |
 | `database` | `"site.db"` | comments/likes database (relative paths resolve against the working directory) |
-| `admin_readonly` | `false` | `true` = /admin is read-only |
+| `content_pull_interval_secs` | `300` | built-in `git pull --ff-only` on the content dir; `0` disables |
+| `git_proxy` | unset (direct) | proxy for git fetch/pull/push, e.g. `"http://127.0.0.1:7890"` |
 
 The listen address is set by `[package.metadata.leptos] site-addr` in `Cargo.toml` (or the `LEPTOS_SITE_ADDR` env).
 
@@ -89,11 +90,13 @@ Body in GFM: tables, task lists, code blocks all work.
 - `posts/**/*.md` → `/posts/<slug>`, `pages/**/*.md` → `/pages/<slug>`, `images/foo.png` → `/images/foo.png`
 - Subdirectories are for organization only — URLs stay flat, slugs are globally unique; `category` defaults to the folder name
 
-**Server auto-sync**: at install time choose "clone git repo" as the content source (read-only credential: a token embedded in the URL, `https://<token>@github.com/you/content.git`, or a deploy key). The server then fast-forwards the content dir itself every `content_pull_interval_secs` (default 300, `0` disables) and hot-reloads — no cron job needed.
+**Server auto-sync**: at install time choose "clone git repo" as the content source. The server fast-forwards the content dir itself every `content_pull_interval_secs` (default 300, `0` disables) and hot-reloads — no cron job needed.
 
-**/admin git panel**: the dashboard shows the content repo's branch/ahead/behind/dirty state with a diff viewer, a manual **pull** button (applies immediately, no waiting for the periodic sync), and **commit+push** for server-side edits — all guarded by the admin login. For push to work, the server's content remote needs write credentials (a read/write token in the URL, or a deploy key with write access).
+**/admin git console**: /admin is git-only — branch/ahead/behind status (remote refs refreshed in the background, so a dead network never stalls page load), a manual **pull** button (applies immediately, no waiting for the periodic sync), per-file **stage/unstage** plus one-click **stage all**, and **commit+push** of the staged set (message optional, auto-generated when empty). The dual-pane (side-by-side) diff viewer shows the working tree vs HEAD — untracked files included — and the working-tree copy can be fixed right there: click a line for inline single-line editing, or open the full-file editor. For push to work, the server's content remote needs write credentials (a read/write token in the URL, `https://<token>@github.com/you/content.git`, or a deploy key with write access).
 
-**Single writing entry point**: with `admin_readonly = true` in config.toml (restart to apply), /admin can browse and moderate but all create/edit/delete goes through local git. If pulls start failing, content probably diverged from earlier /admin edits — check `git -C <content-dir> status`.
+**Proxy**: git network ops are direct by default (any `http_proxy` env inherited by the server process is explicitly ignored). If pull/push fails because the remote is unreachable without a proxy (e.g. GitHub behind a firewall), set `git_proxy = "http://127.0.0.1:7890"` in config.toml and restart — it applies to the periodic auto-pull, the status fetch, and the manual pull/push buttons. Network-looking failures also surface a hint in the console.
+
+**Writing flow**: all writing happens locally — write/edit → push → the server auto-pulls. Quick server-side fixes can be done in the /admin diff editor and pushed from there. If pulls start failing, content probably diverged — check `git -C <content-dir> status`.
 
 ## Adding a page
 

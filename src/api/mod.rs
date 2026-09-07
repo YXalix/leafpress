@@ -1,4 +1,4 @@
-//! Server functions: public-facing reads in [public], comments/likes in [feedback], admin management in [admin], content-repo git operations in [git].
+//! Server functions: public-facing reads in [public], comments/likes in [feedback], admin login in [admin], content-repo git operations in [git].
 
 mod admin;
 mod feedback;
@@ -16,8 +16,6 @@ use crate::types::PostMeta;
 
 #[cfg(feature = "ssr")]
 use crate::state::AppState;
-#[cfg(feature = "ssr")]
-use crate::types::ContentKind;
 
 /// Resource of published posts, shared by the home/list/archive pages
 pub fn posts_resource() -> Resource<Result<Vec<PostMeta>, ServerFnError>> {
@@ -72,16 +70,6 @@ async fn require_admin(state: &AppState) -> Result<(), ServerFnError> {
     }
 }
 
-/// Rejects all content write operations in read-only mode (config.admin_readonly): content is sourced solely from the git repo
-#[cfg(feature = "ssr")]
-fn require_writable(state: &AppState) -> Result<(), ServerFnError> {
-    if state.config.admin_readonly {
-        Err(ServerFnError::new("只读模式：内容仅通过 git 同步更新"))
-    } else {
-        Ok(())
-    }
-}
-
 /// Hashes the requester IP for like deduplication; falls back to "anon" when unavailable
 #[cfg(feature = "ssr")]
 async fn ip_hash() -> String {
@@ -99,35 +87,4 @@ async fn ip_hash() -> String {
             }),
     };
     sha256_hex(&format!("like:{}", ip.unwrap_or_else(|| "anon".into())))
-}
-
-#[cfg(feature = "ssr")]
-fn content_path(content_dir: &str, kind: ContentKind, slug: &str) -> std::path::PathBuf {
-    let sub = match kind {
-        ContentKind::Post => "posts",
-        ContentKind::Page => "pages",
-    };
-    std::path::Path::new(content_dir)
-        .join(sub)
-        .join(format!("{slug}.md"))
-}
-
-/// Resolves the actual file path by slug from the index (files may live in subdirectories)
-#[cfg(feature = "ssr")]
-fn resolve_existing(state: &AppState, kind: ContentKind, slug: &str) -> Option<std::path::PathBuf> {
-    state.index.read().find(kind, slug).map(|p| p.path.clone())
-}
-
-#[cfg(feature = "ssr")]
-fn validate_slug(slug: &str) -> Result<(), ServerFnError> {
-    if slug.is_empty()
-        || slug.len() > 128
-        || slug.contains('/')
-        || slug.contains('\\')
-        || slug.contains("..")
-    {
-        Err(ServerFnError::new("slug 不合法"))
-    } else {
-        Ok(())
-    }
 }

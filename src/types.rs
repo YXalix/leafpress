@@ -97,10 +97,52 @@ pub struct GitStatus {
     pub behind: u32,
     /// `git status --porcelain` entries (uncommitted/untracked files)
     pub dirty: Vec<String>,
+    /// How many of the dirty entries are staged (index differs from HEAD)
+    pub staged: u32,
     /// "hash subject (relative time)"
     pub last_commit: String,
     /// Server's built-in periodic pull interval (0 = off), display only
     pub pull_interval_secs: u64,
+    /// Proxy applied to git network ops (config.git_proxy), display only
+    pub proxy: Option<String>,
+}
+
+/// One changed file in the working tree vs HEAD
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct FileDiff {
+    pub path: String,
+    /// "modified" | "added" | "deleted"
+    pub status: String,
+    /// true when the file (or part of it) is staged in the index
+    pub staged: bool,
+    pub rows: Vec<DiffRow>,
+    /// true when the diff was cut short by a size cap
+    pub truncated: bool,
+}
+
+/// A dual-pane diff row: a hunk header, or one left/right cell pair
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum DiffRow {
+    /// "@@ -a,b +c,d @@" header (without the leading @@ markers stripped)
+    Hunk(String),
+    Line {
+        left: Option<DiffCell>,
+        right: Option<DiffCell>,
+    },
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DiffCell {
+    pub no: u32,
+    pub text: String,
+    pub kind: DiffLineKind,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DiffLineKind {
+    Context,
+    Del,
+    Add,
 }
 
 /// Which operation the admin git panel triggers

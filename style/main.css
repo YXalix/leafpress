@@ -6,6 +6,11 @@
   --card: #ffffff;
   --border: #e5e7eb;
   --code-bg: #f3f4f6;
+  --diff-add-bg: rgba(46, 160, 67, 0.13);
+  --diff-add-hl: rgba(46, 160, 67, 0.35);
+  --diff-del-bg: rgba(248, 81, 73, 0.11);
+  --diff-del-hl: rgba(248, 81, 73, 0.32);
+  --diff-hunk-bg: color-mix(in srgb, var(--accent) 7%, transparent);
 }
 
 [data-theme="dark"] {
@@ -16,6 +21,11 @@
   --card: #161b22;
   --border: #30363d;
   --code-bg: #1c2128;
+  --diff-add-bg: rgba(63, 185, 80, 0.15);
+  --diff-add-hl: rgba(63, 185, 80, 0.4);
+  --diff-del-bg: rgba(248, 81, 73, 0.15);
+  --diff-del-hl: rgba(248, 81, 73, 0.4);
+  --diff-hunk-bg: color-mix(in srgb, var(--accent) 9%, transparent);
 }
 
 * { box-sizing: border-box; }
@@ -354,54 +364,26 @@ button, .button {
 }
 .button:hover { text-decoration: none; opacity: 0.9; }
 .button-secondary { background: transparent; color: var(--fg); border: 1px solid var(--border); }
-.link-danger { background: none; border: none; color: #dc2626; cursor: pointer; padding: 0; font-size: 0.85rem; }
-.link { font-size: 0.85rem; }
 
-/* ---- Admin ---- */
+/* ---- Admin (git console) ---- */
 .admin-login { max-width: 360px; margin: 48px auto; }
 .admin-login form { display: flex; flex-direction: column; gap: 12px; }
-/* Admin list & editor are wider: widen the main column (falls back to default where unsupported) */
+/* The git console is wider: widen the main column (falls back to default where unsupported) */
 .main:has(.admin-wide) { max-width: 1080px; }
 .admin-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
 .admin-actions { display: flex; gap: 8px; flex-wrap: wrap; }
-.admin-filter { margin: 4px 0 8px; }
-.admin-filter .filter-bar { margin: 8px 0; }
-.filter-label { color: var(--muted); font-size: 0.85rem; align-self: center; }
-.admin-search { width: 100%; border-radius: 999px; margin: 8px 0 4px; }
-.admin-count { font-size: 0.85rem; margin: 4px 0 8px; }
-.admin-table-wrap { overflow-x: auto; }
-.admin-table { width: 100%; border-collapse: collapse; }
-.admin-table th, .admin-table td { border-bottom: 1px solid var(--border); text-align: left; padding: 8px 12px; vertical-align: middle; }
-.admin-table th { white-space: nowrap; color: var(--muted); font-size: 0.88rem; font-weight: 600; }
-.admin-table .col-date { white-space: nowrap; font-variant-numeric: tabular-nums; }
-.admin-row-actions { display: flex; gap: 12px; align-items: center; white-space: nowrap; }
 .badge { display: inline-block; padding: 1px 10px; border-radius: 999px; font-size: 0.78rem; background: var(--code-bg); color: var(--muted); white-space: nowrap; }
 .badge-published { background: color-mix(in srgb, #16a34a 14%, transparent); color: #16a34a; }
 .badge-draft { background: color-mix(in srgb, #d97706 15%, transparent); color: #d97706; }
-.editor-toolbar { display: flex; justify-content: space-between; align-items: end; gap: 12px; margin: 12px 0; flex-wrap: wrap; }
-.editor-toolbar label { display: flex; flex-direction: column; gap: 4px; font-size: 0.85rem; color: var(--muted); flex: 1; }
-.editor-area {
-  width: 100%;
-  min-height: 55vh;
-  font-family: "SF Mono", Menlo, Consolas, monospace;
-  font-size: 0.9rem;
-}
-.preview {
-  margin-top: 16px;
-  border: 1px dashed var(--border);
-  border-radius: 10px;
-  padding: 0 16px 16px;
-}
-.admin-comments { margin-top: 24px; }
+.badge-staged { background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent); }
 
-/* Admin git panel */
+/* Git status + actions */
 .git-panel { border: 1px solid var(--border); border-radius: 10px; padding: 12px 16px; margin: 8px 0 16px; }
 .git-panel-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 0.85rem; }
 .git-panel-tail { margin-left: auto; }
 .git-panel-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 10px; }
 .git-msg { flex: 1; min-width: 200px; }
-.git-dirty { margin-top: 10px; font-size: 0.85rem; color: var(--muted); }
-.git-diff, .git-log {
+.git-log {
   background: var(--code-bg);
   border-radius: 8px;
   padding: 10px 12px;
@@ -414,6 +396,91 @@ button, .button {
   word-break: break-all;
 }
 .git-log.error { color: #dc2626; }
+
+/* Dual-pane diff (VSCode-style) */
+.diff-list { display: flex; flex-direction: column; gap: 14px; margin: 8px 0 16px; }
+.diff-file { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--card); }
+.diff-file-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 14px; cursor: pointer; user-select: none;
+  font-size: 0.85rem; list-style: none;
+}
+.diff-file-head::-webkit-details-marker { display: none; }
+.diff-file-head::before { content: "▸"; color: var(--muted); font-size: 0.75rem; }
+.diff-file[open] > .diff-file-head::before { content: "▾"; }
+.diff-file-head:hover { background: color-mix(in srgb, var(--fg) 4%, transparent); }
+.diff-path { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 0.8rem; word-break: break-all; }
+.diff-stat {
+  margin-left: auto; flex-shrink: 0;
+  display: flex; gap: 8px;
+  font-family: "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.78rem; white-space: nowrap;
+}
+.stat-add { color: #1a7f37; }
+.stat-del { color: #cf222e; }
+[data-theme="dark"] .stat-add { color: #3fb950; }
+[data-theme="dark"] .stat-del { color: #f85149; }
+.diff-edit-btn { font-size: 0.78rem; padding: 2px 10px; flex-shrink: 0; }
+.diff-scroll { overflow-x: auto; border-top: 1px solid var(--border); background: var(--code-bg); }
+.diff-grid-head {
+  display: grid; grid-template-columns: 1fr 1fr;
+  font-size: 0.72rem; color: var(--muted);
+  border-bottom: 1px solid var(--border);
+  position: sticky; top: 0; background: var(--card);
+}
+.diff-grid-head span { padding: 4px 12px; }
+.diff-rows {
+  display: grid; grid-template-columns: 1fr 1fr;
+  min-width: 100%;
+  font-family: "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.8rem; line-height: 1.5;
+  padding: 4px 0 6px;
+}
+.diff-hunk {
+  grid-column: 1 / -1;
+  padding: 3px 12px;
+  color: var(--muted);
+  background: var(--diff-hunk-bg);
+  font-size: 0.72rem;
+}
+.diff-cell { display: flex; min-width: 0; }
+.diff-cell:hover { box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--fg) 5%, transparent); }
+.cell-num {
+  flex: 0 0 3.4em; text-align: right; padding: 0 10px 0 6px;
+  color: var(--muted); opacity: 0.6; user-select: none;
+  font-variant-numeric: tabular-nums;
+}
+.cell-text { flex: 1; white-space: pre-wrap; overflow-wrap: anywhere; padding-right: 16px; }
+/* Working-tree cells are click-to-edit */
+.cell-editable { cursor: text; }
+/* The inline editor blends into the line; the accent bar on the left marks the edited row */
+.cell-input {
+  flex: 1; min-width: 0;
+  margin: 0 14px 0 0; padding: 0;
+  font-family: inherit; font-size: inherit; line-height: inherit;
+  color: inherit; background: transparent;
+  border: none; border-radius: 0;
+  outline: none;
+}
+.diff-cell:has(.cell-input) { box-shadow: inset 2px 0 0 var(--accent); }
+.cell-del { background: var(--diff-del-bg); }
+.cell-add { background: var(--diff-add-bg); }
+.cell-del .cell-hl { background: var(--diff-del-hl); border-radius: 3px; }
+.cell-add .cell-hl { background: var(--diff-add-hl); border-radius: 3px; }
+.cell-empty { background: color-mix(in srgb, var(--fg) 3%, transparent); }
+
+/* In-diff editor (working-tree copy) */
+.diff-editor { border-top: 1px solid var(--border); padding: 12px 14px; }
+.diff-edit-area {
+  width: 100%;
+  min-height: 45vh;
+  font-family: "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.85rem;
+  line-height: 1.55;
+  tab-size: 2;
+}
+.diff-editor-actions { display: flex; align-items: center; gap: 10px; margin-top: 8px; flex-wrap: wrap; }
+.diff-editor-actions .muted { font-size: 0.8rem; }
 
 /* ---- 404 / footer ---- */
 .not-found { text-align: center; padding: 64px 0; }

@@ -11,11 +11,13 @@ pub struct Config {
     pub admin_password: String,
     pub content_dir: String,
     pub database: String,
-    /// true = /admin is read-only (its save/delete disabled); content syncs via git only
-    pub admin_readonly: bool,
     /// Seconds between built-in `git pull --ff-only` on content_dir; 0 disables.
     /// No-op when content_dir is not a git repo. Pulled changes hot-reload via the watcher.
     pub content_pull_interval_secs: u64,
+    /// Proxy for git network ops (fetch/pull/push), e.g. "http://127.0.0.1:7890".
+    /// Default None = direct connection (any http_proxy env inherited from the server
+    /// process is explicitly disabled). Set when the remote is unreachable without a proxy.
+    pub git_proxy: Option<String>,
 }
 
 impl Default for Config {
@@ -25,8 +27,8 @@ impl Default for Config {
             admin_password: "changeme".into(),
             content_dir: "content".into(),
             database: "site.db".into(),
-            admin_readonly: false,
             content_pull_interval_secs: 300,
+            git_proxy: None,
         }
     }
 }

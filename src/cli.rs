@@ -45,9 +45,6 @@ pub struct InitArgs {
     /// Admin password (must not contain double quotes)
     #[arg(long)]
     pub admin_password: Option<String>,
-    /// Read-only mode: /admin is not writable, content only syncs via git
-    #[arg(long)]
-    pub readonly: bool,
     /// Skip questions, use arguments/defaults (for scripted installs)
     #[arg(long, short)]
     pub yes: bool,
@@ -129,15 +126,6 @@ pub fn init(args: InitArgs) -> Result<()> {
     };
     check_toml_safe("admin_password", &admin_password)?;
 
-    // Read-only mode
-    let readonly = if args.readonly {
-        true
-    } else if interactive {
-        ask("Read-only mode (/admin not writable, content syncs via git only) y/N", "n")?.eq_ignore_ascii_case("y")
-    } else {
-        false
-    };
-
     // Prepare the content dir first; don't write config on failure
     setup_content(&content_dir, &content_action)?;
     std::fs::create_dir_all(content_dir.join("images"))?;
@@ -147,9 +135,6 @@ pub fn init(args: InitArgs) -> Result<()> {
         format!("site_name = \"{site_name}\"\nadmin_password = \"{admin_password}\"\n");
     if content_dir != Path::new("content") {
         config.push_str(&format!("content_dir = \"{}\"\n", content_dir.display()));
-    }
-    if readonly {
-        config.push_str("admin_readonly = true\n");
     }
     if let Some(parent) = config_path
         .parent()
@@ -351,8 +336,8 @@ fn check_config(r: &mut Report) -> Option<Config> {
             } else {
                 r.ok("admin_password is set");
             }
-            if cfg.admin_readonly {
-                r.info("admin_readonly = true: /admin is read-only, content syncs via git only");
+            if let Some(proxy) = &cfg.git_proxy {
+                r.info(format!("git_proxy = {proxy}: git fetch/pull/push go through this proxy"));
             }
             Some(cfg)
         }
@@ -406,8 +391,9 @@ async fn check_content(r: &mut Report, cfg: &Config) {
             ));
         } else if head.contains("[ahead") {
             r.warn(format!(
-                "Local commits ahead of remote ({}) — the server should not have local commits in read-only mode",
-                head
+                "Local commits ahead of remote ({}) → push from /admin or run git -C {} push",
+                head,
+                dir.display()
             ));
         }
     }

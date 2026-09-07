@@ -117,7 +117,11 @@ async fn serve() -> anyhow::Result<()> {
     let index = leafpress::content::SharedIndex::default();
     *index.write() = leafpress::content::scan(&content_dir)?;
     leafpress::content::spawn_watcher(content_dir.clone(), index.clone());
-    leafpress::content::spawn_git_sync(content_dir, config.content_pull_interval_secs);
+    leafpress::content::spawn_git_sync(
+        content_dir,
+        config.content_pull_interval_secs,
+        config.git_proxy.clone(),
+    );
 
     let state = AppState {
         leptos_options: leptos_options.clone(),

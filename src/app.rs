@@ -2,7 +2,7 @@ use leptos::prelude::*;
 use leptos_router::components::{Route, Router, Routes};
 
 use crate::components::layout::Layout;
-use crate::pages::admin::{AdminDashboard, AdminEdit, AdminLogin, AdminNew};
+use crate::pages::admin::{AdminGit, AdminLogin};
 use crate::pages::archive::Archive;
 use crate::pages::home::Home;
 use crate::pages::not_found::NotFound;
@@ -24,9 +24,7 @@ pub fn App() -> impl IntoView {
                     <Route path=leptos_router::path!("/search") view=Search/>
                     <Route path=leptos_router::path!("/pages/:slug") view=PageView/>
                     <Route path=leptos_router::path!("/admin/login") view=AdminLogin/>
-                    <Route path=leptos_router::path!("/admin") view=AdminDashboard/>
-                    <Route path=leptos_router::path!("/admin/new/:kind") view=AdminNew/>
-                    <Route path=leptos_router::path!("/admin/edit/:kind/:slug") view=AdminEdit/>
+                    <Route path=leptos_router::path!("/admin") view=AdminGit/>
                 </Routes>
             </Layout>
         </Router>

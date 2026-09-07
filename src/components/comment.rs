@@ -1,14 +1,11 @@
 use leptos::prelude::*;
 
-use crate::api::{add_comment, delete_comment, get_comments};
+use crate::api::{add_comment, get_comments};
 use crate::types::Comment;
 
-/// Single comment: avatar initial + author/date + body; shows a delete button when on_delete is provided (for the admin panel)
+/// Single comment: avatar initial + author/date + body
 #[component]
-fn CommentItem(
-    comment: Comment,
-    #[prop(optional)] on_delete: Option<Callback<i64>>,
-) -> impl IntoView {
+fn CommentItem(comment: Comment) -> impl IntoView {
     let initial: String = comment
         .author
         .chars()
@@ -25,14 +22,6 @@ fn CommentItem(
                 <div class="comment-head">
                     <span class="comment-author">{comment.author}</span>
                     <span class="muted">{comment.created_at}</span>
-                    {on_delete.map(|f| {
-                        let id = comment.id;
-                        view! {
-                            <button class="link-danger" on:click=move |_| f.run(id)>
-                                "删除"
-                            </button>
-                        }
-                    })}
                 </div>
                 <p class="comment-body">{comment.content}</p>
             </div>
@@ -103,36 +92,5 @@ pub fn CommentSection(slug: String) -> impl IntoView {
                 {move || error.get().map(|e| view! { <p class="error">{e}</p> })}
             </form>
         </section>
-    }
-}
-
-/// Admin comment management (optionally mounted): comment list with delete buttons
-#[component]
-pub fn AdminCommentList(slug: String) -> impl IntoView {
-    let refresh = RwSignal::new(0u32);
-    let comments = Resource::new(
-        move || (slug.clone(), refresh.get()),
-        |(slug, _)| async move { get_comments(slug).await.unwrap_or_default() },
-    );
-    let on_delete = Callback::new(move |id: i64| {
-        leptos::task::spawn_local(async move {
-            if delete_comment(id).await.is_ok() {
-                refresh.update(|n| *n += 1);
-            }
-        });
-    });
-    view! {
-        <div class="admin-comments">
-            <h4>"评论管理"</h4>
-            <Suspense fallback=|| view! { <p class="muted">"加载中…"</p> }>
-                {move || {
-                    comments.get().map(|list| {
-                        list.into_iter()
-                            .map(|c| view! { <CommentItem comment=c on_delete=on_delete/> })
-                            .collect_view()
-                    })
-                }}
-            </Suspense>
-        </div>
     }
 }

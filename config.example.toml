@@ -8,5 +8,7 @@ admin_password = "changeme"
 # site_name = "My Blog"
 # content_dir = "content"
 # database = "site.db"   # relative paths resolve against the working directory
-# admin_readonly = false   # true = /admin is read-only (cannot create/edit/delete posts or pages); content syncs via git only
 # content_pull_interval_secs = 300   # built-in `git pull --ff-only` on content_dir; 0 = off, no-op if not a git repo
+# git_proxy = "http://127.0.0.1:7890"   # proxy for git fetch/pull/push. Default unset = direct connection
+                                        # (http_proxy env vars are explicitly ignored). Set when the remote
+                                        # is unreachable without a proxy, e.g. GitHub behind a firewall
