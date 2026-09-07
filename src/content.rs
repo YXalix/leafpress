@@ -280,6 +280,15 @@ pub fn spawn_git_sync(content_dir: PathBuf, interval_secs: u64, proxy: Option<St
     std::thread::spawn(move || loop {
         std::thread::sleep(std::time::Duration::from_secs(interval_secs));
         let mut cmd = std::process::Command::new("git");
+        // safe.directory: the repo may be owned by a different user than the service
+        // (e.g. cloned by root) — git refuses cross-user access otherwise
+        cmd.arg("-c").arg(format!(
+            "safe.directory={}",
+            content_dir
+                .canonicalize()
+                .unwrap_or_else(|_| content_dir.clone())
+                .display()
+        ));
         cmd.arg("-C").arg(&content_dir);
         // Explicit proxy control: configured proxy when set, otherwise force direct
         // (empty value also disables any http_proxy env inherited from the server process)

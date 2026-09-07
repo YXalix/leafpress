@@ -7,7 +7,7 @@ admin_password = "changeme"
 # Everything below is optional (shown values are the defaults):
 # site_name = "My Blog"
 # content_dir = "content"
-# database = "site.db"   # relative paths resolve against the working directory
+# database = "site.db"   # relative paths resolve against the directory containing the config file
 # content_pull_interval_secs = 300   # built-in `git pull --ff-only` on content_dir; 0 = off, no-op if not a git repo
 # git_proxy = "http://127.0.0.1:7890"   # proxy for git fetch/pull/push. Default unset = direct connection
                                         # (http_proxy env vars are explicitly ignored). Set when the remote

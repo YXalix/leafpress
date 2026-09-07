@@ -265,7 +265,15 @@ impl Report {
 }
 
 fn run_git(dir: &Path, git_args: &[&str]) -> Result<String> {
+    // safe.directory: doctor/CLI often run as root on a content repo owned by the
+    // leafpress service user — git refuses cross-user access otherwise
+    let safe = format!(
+        "safe.directory={}",
+        dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf()).display()
+    );
     let out = Command::new("git")
+        .arg("-c")
+        .arg(safe)
         .arg("-C")
         .arg(dir)
         .args(git_args)
@@ -329,7 +337,8 @@ fn check_config(r: &mut Report) -> Option<Config> {
         }
     };
     match toml::from_str::<Config>(&raw) {
-        Ok(cfg) => {
+        Ok(mut cfg) => {
+            cfg.anchor_to_config_dir(&path);
             r.ok(format!("{} parsed successfully", path.display()));
             if cfg.admin_password.is_empty() || cfg.admin_password == "changeme" {
                 r.warn("admin_password is empty or default → change it with leafpress passwd");
@@ -377,9 +386,7 @@ async fn check_content(r: &mut Report, cfg: &Config) {
         Ok(_) => r.warn(
             "git has uncommitted changes/untracked files → periodic pull --ff-only may fail silently; run git status to inspect",
         ),
-        Err(e) => r.warn(format!(
-            "git status failed: {e} (cross-user access may need git config --global --add safe.directory)"
-        )),
+        Err(e) => r.warn(format!("git status failed: {e}")),
     }
     if let Ok(out) = run_git(&dir, &["status", "-sb"]) {
         let head = out.lines().next().unwrap_or("");

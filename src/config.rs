@@ -56,9 +56,13 @@ impl Config {
     }
 
     pub fn load() -> Self {
-        match std::fs::read_to_string(Self::path()) {
-            Ok(s) => match toml::from_str(&s) {
-                Ok(c) => c,
+        let path = Self::path();
+        match std::fs::read_to_string(&path) {
+            Ok(s) => match toml::from_str::<Config>(&s) {
+                Ok(mut c) => {
+                    c.anchor_to_config_dir(&path);
+                    c
+                }
                 Err(e) => {
                     eprintln!("[config] failed to parse config.toml, using defaults: {e}");
                     Self::default()
@@ -67,6 +71,24 @@ impl Config {
             Err(_) => {
                 eprintln!("[config] config.toml not found (searched $LEAFPRESS_CONFIG, ./config.toml, ~/.config/leafpress), using defaults");
                 Self::default()
+            }
+        }
+    }
+
+    /// Resolves relative content_dir/database against the config file's directory, so the
+    /// systemd service (pinned WorkingDirectory) and the CLI (run from any cwd) always see
+    /// the same paths. No-op when the config path itself is relative (plain ./config.toml —
+    /// the local dev case — keeps resolving against the working directory as before).
+    pub(crate) fn anchor_to_config_dir(&mut self, config_path: &std::path::Path) {
+        let Some(base) = config_path
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+        else {
+            return;
+        };
+        for p in [&mut self.content_dir, &mut self.database] {
+            if !std::path::Path::new(p.as_str()).is_absolute() {
+                *p = base.join(p.as_str()).to_string_lossy().into_owned();
             }
         }
     }

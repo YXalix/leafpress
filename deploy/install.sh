@@ -76,11 +76,21 @@ printf '#!/bin/sh\nexec env LEAFPRESS_CONFIG="%s/config.toml" "%s/leafpress" "$@
   "$INSTALL_DIR" "$INSTALL_DIR" > /usr/local/bin/leafpress
 chmod 755 /usr/local/bin/leafpress
 
+# Lets every local user (root CLI + leafpress service) run git in the content repo:
+# git refuses cross-user repo access ("dubious ownership") unless the path is whitelisted.
+# --system covers all users; the server binary additionally passes -c safe.directory itself.
+mark_safe() {
+  [ -d "$1/.git" ] || return 0
+  git config --system --get-all safe.directory 2>/dev/null | grep -Fxq "$1" && return 0
+  git config --system --add safe.directory "$1" || true
+}
+
 # ---------- Config & content (if config.toml already exists, keep everything; pure upgrade) ----------
 if [ -f "$INSTALL_DIR/config.toml" ]; then
   echo ">> config.toml already exists; keeping config and content untouched"
   CONTENT_DIR_FINAL=$(sed -nE 's/^content_dir *= *"(.*)".*/\1/p' "$INSTALL_DIR/config.toml" | head -1)
   case "$CONTENT_DIR_FINAL" in /*) ;; *) CONTENT_DIR_FINAL="$INSTALL_DIR/${CONTENT_DIR_FINAL:-content}" ;; esac
+  mark_safe "$CONTENT_DIR_FINAL"
 else
   ask SITE_NAME "Site name" "My Blog"
 
@@ -95,27 +105,38 @@ else
   ask CONTENT_DIR "Content dir path" "/srv/leafpress-content"
   CONTENT_DIR_FINAL="$CONTENT_DIR"
 
-  case "$CONTENT_CHOICE" in
-    1)
-      ask CONTENT_URL "git repo URL (for private repos use the https://<token>@github.com/... form)" ""
-      [ -n "$CONTENT_URL" ] || { echo "URL cannot be empty"; exit 1; }
-      if [ -d "$CONTENT_DIR/.git" ]; then
-        echo ">> Already exists, running git pull"
-        git -C "$CONTENT_DIR" pull --ff-only || true
-      else
-        git clone "$CONTENT_URL" "$CONTENT_DIR"
-      fi
-      git config --global --add safe.directory "$CONTENT_DIR" || true
-      ;;
-    2)
-      [ -d "$CONTENT_DIR" ] || { echo "Directory does not exist: $CONTENT_DIR"; exit 1; }
-      ;;
-    *)
-      if [ -d "$CONTENT_DIR" ] && [ -n "$(ls -A "$CONTENT_DIR" 2>/dev/null)" ]; then
-        echo ">> $CONTENT_DIR is not empty, leaving it as-is"
-      else
-        mkdir -p "$CONTENT_DIR/posts"
-        cat > "$CONTENT_DIR/posts/hello.md" <<'MD'
+  # Content setup is deliberately non-fatal: a bad URL / network failure must not abort the
+  # install before config.toml and the systemd unit are written (that leaves a broken
+  # half-installed server). On failure the site simply starts with an empty content dir.
+  setup_content() {
+    case "$CONTENT_CHOICE" in
+      1)
+        ask CONTENT_URL "git repo URL (for private repos use the https://<token>@github.com/... form)" ""
+        if [ -z "$CONTENT_URL" ]; then
+          echo "!! git repo URL is empty"
+          return 1
+        fi
+        mkdir -p "$(dirname "$CONTENT_DIR")"
+        if [ -d "$CONTENT_DIR/.git" ]; then
+          echo ">> Already exists, running git pull"
+          git -C "$CONTENT_DIR" pull --ff-only || true
+        elif [ -d "$CONTENT_DIR" ] && [ -n "$(ls -A "$CONTENT_DIR" 2>/dev/null)" ]; then
+          echo "!! $CONTENT_DIR is not empty and not a git repo — empty it or pick another path"
+          return 1
+        else
+          git clone "$CONTENT_URL" "$CONTENT_DIR" || return 1
+        fi
+        ;;
+      2)
+        [ -d "$CONTENT_DIR" ] || { echo "!! Directory does not exist: $CONTENT_DIR"; return 1; }
+        ;;
+      *)
+        mkdir -p "$CONTENT_DIR"
+        if [ -n "$(ls -A "$CONTENT_DIR" 2>/dev/null)" ]; then
+          echo ">> $CONTENT_DIR is not empty, leaving it as-is"
+        else
+          mkdir -p "$CONTENT_DIR/posts"
+          cat > "$CONTENT_DIR/posts/hello.md" <<'MD'
 ---
 title: "Hello, Leafpress"
 date: "2026-01-01 12:00"
@@ -123,11 +144,19 @@ status: published
 ---
 
 Leafpress 已经跑起来了。在内容目录里增删 `.md` 文件即可更新（热加载，无需重启），
-或访问 /admin 在线写作。这篇示例可以放心删除。
+也可以在 /admin 的 git 控制台提交并推送改动。这篇示例可以放心删除。
 MD
-      fi
-      ;;
-  esac
+        fi
+        ;;
+    esac
+  }
+  if setup_content; then
+    mark_safe "$CONTENT_DIR"
+  else
+    echo "!! Content setup failed — continuing anyway; the site starts with an empty content dir."
+    echo "   Fix later: git clone <repo> $CONTENT_DIR && chown -R leafpress:leafpress $CONTENT_DIR && systemctl restart leafpress"
+    mkdir -p "$CONTENT_DIR"
+  fi
   mkdir -p "$CONTENT_DIR/images"
 
   ask ADMIN_PASSWORD "Admin password (for /admin login, must not contain double quotes)" "" secret
@@ -148,7 +177,8 @@ chown -R leafpress:leafpress "$INSTALL_DIR"
 [ -n "${CONTENT_DIR_FINAL:-}" ] && [ -d "$CONTENT_DIR_FINAL" ] && chown -R leafpress:leafpress "$CONTENT_DIR_FINAL"
 
 # ---------- systemd (generated from the actual install dir) ----------
-cat > "/etc/systemd/system/$SERVICE.service" <<EOF
+if command -v systemctl >/dev/null && [ -d /run/systemd/system ]; then
+  cat > "/etc/systemd/system/$SERVICE.service" <<EOF
 [Unit]
 Description=Leafpress blog engine
 After=network-online.target
@@ -167,13 +197,19 @@ Environment=LEPTOS_SITE_ADDR=$SITE_ADDR
 WantedBy=multi-user.target
 EOF
 
-systemctl daemon-reload
-systemctl enable "$SERVICE" >/dev/null 2>&1
-systemctl restart "$SERVICE"
+  systemctl daemon-reload
+  systemctl enable "$SERVICE" >/dev/null 2>&1
+  systemctl restart "$SERVICE"
+  SVC_STATUS="$(systemctl is-active "$SERVICE") (logs: systemctl status $SERVICE)"
+else
+  SVC_STATUS="not installed (systemd not detected)"
+  echo "!! systemd not detected — service unit skipped. Run manually:"
+  echo "   LEAFPRESS_CONFIG=$INSTALL_DIR/config.toml LEPTOS_SITE_ADDR=$SITE_ADDR $INSTALL_DIR/leafpress"
+fi
 
 echo
 echo "=== Done ==="
-echo "Status:   $(systemctl is-active "$SERVICE") (logs: systemctl status $SERVICE)"
+echo "Status:   $SVC_STATUS"
 echo "Visit:    http://<server-IP>:${SITE_ADDR##*:}  (admin at /admin)"
 echo "Config:   $INSTALL_DIR/config.toml"
 echo "Database: $INSTALL_DIR/data/site.db"

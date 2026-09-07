@@ -25,7 +25,9 @@ Runs at http://127.0.0.1:3000 (admin at `/admin`).
 |---|---|---|
 | `site_name` | `"My Blog"` | site title |
 | `content_dir` | `"content"` | where the markdown lives |
-| `database` | `"site.db"` | comments/likes database (relative paths resolve against the working directory) |
+| `database` | `"site.db"` | comments/likes database |
+
+Relative `content_dir` / `database` paths resolve against the **config file's directory**, so the systemd service and the `leafpress` CLI see the same paths no matter where they run from (a relative `./config.toml` — the local dev case — keeps resolving against the working directory).
 | `content_pull_interval_secs` | `300` | built-in `git pull --ff-only` on the content dir; `0` disables |
 | `git_proxy` | unset (direct) | proxy for git fetch/pull/push, e.g. `"http://127.0.0.1:7890"` |
 
@@ -45,7 +47,7 @@ leafpress update     # self-update: download the latest release, replace itself,
 
 Release flow: `git push` → CI builds dual-arch releases (static assets embedded) → the server updates itself.
 
-Install (as root, interactive prompts; re-running is a pure upgrade — config / content / database are never touched):
+Install (as root, interactive prompts; re-running is a pure upgrade — config / content / database are never touched, and it also repairs the systemd unit and git safe.directory if they are missing):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/YXalix/leafpress/main/deploy/install.sh | sudo bash

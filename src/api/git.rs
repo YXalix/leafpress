@@ -14,7 +14,17 @@ use crate::types::{FileDiff, GitStatus};
 /// Runs git with fixed args (no shell); on failure returns stderr/stdout as the error message
 #[cfg(feature = "ssr")]
 fn run_git(dir: &std::path::Path, args: &[&str]) -> Result<String, ServerFnError> {
+    // Scoped safe.directory: the service runs as the leafpress user while the repo may have
+    // been cloned/rsynced by root — without this git refuses with "detected dubious
+    // ownership". Command-line -c is a protected config scope, so git honors it, and it is
+    // limited to exactly the repo we manage. Canonicalized because git compares realpaths.
+    let safe = format!(
+        "safe.directory={}",
+        dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf()).display()
+    );
     let out = std::process::Command::new("git")
+        .arg("-c")
+        .arg(safe)
         .arg("-C")
         .arg(dir)
         .args(args)
