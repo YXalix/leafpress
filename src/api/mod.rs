@@ -1,11 +1,13 @@
-//! Server functions: public-facing reads in [public], comments/likes in [feedback], admin management in [admin].
+//! Server functions: public-facing reads in [public], comments/likes in [feedback], admin management in [admin], content-repo git operations in [git].
 
 mod admin;
 mod feedback;
+mod git;
 mod public;
 
 pub use admin::*;
 pub use feedback::*;
+pub use git::*;
 pub use public::*;
 
 use leptos::prelude::*;

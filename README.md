@@ -91,6 +91,8 @@ Body in GFM: tables, task lists, code blocks all work.
 
 **Server auto-sync**: at install time choose "clone git repo" as the content source (read-only credential: a token embedded in the URL, `https://<token>@github.com/you/content.git`, or a deploy key). The server then fast-forwards the content dir itself every `content_pull_interval_secs` (default 300, `0` disables) and hot-reloads — no cron job needed.
 
+**/admin git panel**: the dashboard shows the content repo's branch/ahead/behind/dirty state with a diff viewer, a manual **pull** button (applies immediately, no waiting for the periodic sync), and **commit+push** for server-side edits — all guarded by the admin login. For push to work, the server's content remote needs write credentials (a read/write token in the URL, or a deploy key with write access).
+
 **Single writing entry point**: with `admin_readonly = true` in config.toml (restart to apply), /admin can browse and moderate but all create/edit/delete goes through local git. If pulls start failing, content probably diverged from earlier /admin edits — check `git -C <content-dir> status`.
 
 ## Adding a page

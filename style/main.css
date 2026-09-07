@@ -394,6 +394,27 @@ button, .button {
 }
 .admin-comments { margin-top: 24px; }
 
+/* Admin git panel */
+.git-panel { border: 1px solid var(--border); border-radius: 10px; padding: 12px 16px; margin: 8px 0 16px; }
+.git-panel-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 0.85rem; }
+.git-panel-tail { margin-left: auto; }
+.git-panel-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 10px; }
+.git-msg { flex: 1; min-width: 200px; }
+.git-dirty { margin-top: 10px; font-size: 0.85rem; color: var(--muted); }
+.git-diff, .git-log {
+  background: var(--code-bg);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-top: 10px;
+  font-family: "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.8rem;
+  max-height: 320px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.git-log.error { color: #dc2626; }
+
 /* ---- 404 / footer ---- */
 .not-found { text-align: center; padding: 64px 0; }
 .not-found h1 { font-size: 4rem; margin: 0; }

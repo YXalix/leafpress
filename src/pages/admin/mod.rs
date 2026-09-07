@@ -2,9 +2,11 @@
 
 mod dashboard;
 mod editor;
+mod git;
 
 pub use dashboard::AdminDashboard;
 pub use editor::{AdminEdit, AdminNew};
+pub use git::GitPanel;
 
 use leptos::prelude::*;
 use leptos_router::components::A;

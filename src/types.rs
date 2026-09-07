@@ -87,3 +87,25 @@ pub struct SearchResult {
     /// Context snippet around body matches (plain text, ellipses where truncated)
     pub snippet: String,
 }
+
+/// Content-repo git state shown in the admin panel
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct GitStatus {
+    /// e.g. "main...origin/main"
+    pub branch: String,
+    pub ahead: u32,
+    pub behind: u32,
+    /// `git status --porcelain` entries (uncommitted/untracked files)
+    pub dirty: Vec<String>,
+    /// "hash subject (relative time)"
+    pub last_commit: String,
+    /// Server's built-in periodic pull interval (0 = off), display only
+    pub pull_interval_secs: u64,
+}
+
+/// Which operation the admin git panel triggers
+#[derive(Clone, Copy)]
+pub enum GitOp {
+    Pull,
+    Push,
+}

@@ -4,7 +4,7 @@ use leptos::prelude::*;
 use leptos_router::components::A;
 use leptos_router::hooks::use_navigate;
 
-use super::{login_prompt, readonly_signal};
+use super::{login_prompt, readonly_signal, GitPanel};
 use crate::api::{admin_delete, admin_list_all, admin_logout};
 use crate::types::{ContentKind, PostMeta};
 
@@ -159,6 +159,7 @@ pub fn AdminDashboard() -> impl IntoView {
                 <button class="button-secondary" on:click=on_logout>"退出登录"</button>
             </div>
         </div>
+        <GitPanel/>
         <div class="admin-filter">
             <input
                 class="admin-search"
