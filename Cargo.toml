@@ -21,6 +21,7 @@ clap = { version = "4", features = ["derive"], optional = true }
 comrak = { version = "0.29", optional = true }
 console_error_panic_hook = { version = "0.1", optional = true }
 gray_matter = { version = "0.2", optional = true }
+katex = { version = "0.4", optional = true }
 mime_guess = { version = "2", optional = true }
 notify = { version = "7", optional = true }
 parking_lot = { version = "0.12", optional = true }
@@ -47,6 +48,7 @@ ssr = [
   "dep:chrono",
   "dep:comrak",
   "dep:gray_matter",
+  "dep:katex",
   "dep:mime_guess",
   "dep:notify",
   "dep:parking_lot",

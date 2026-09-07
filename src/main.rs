@@ -77,6 +77,7 @@ fn shell(options: LeptosOptions, site_name: String) -> impl IntoView {
                 <meta name="viewport" content="width=device-width, initial-scale=1"/>
                 <link rel="icon" href="/favicon.svg" type="image/svg+xml"/>
                 <link rel="stylesheet" href="/pkg/leafpress.css"/>
+                <link rel="stylesheet" href="/katex/katex.min.css"/>
                 <AutoReload options=options.clone()/>
                 <HydrationScripts options=options/>
                 <script>{r#"(function(){try{var t=localStorage.getItem('theme');if(!t){t=window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';}document.documentElement.setAttribute('data-theme',t);}catch(e){document.documentElement.setAttribute('data-theme','light');}})();"#}</script>

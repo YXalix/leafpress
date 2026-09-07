@@ -86,7 +86,7 @@ category: "notes"
 status: published    # anything else stays out of the frontend
 ---
 
-Body in GFM: tables, task lists, code blocks all work.
+Body in GFM: tables, task lists, code blocks all work; `$...$` / `$$...$$` math renders via KaTeX (server-side, no client JS).
 ```
 
 - `posts/**/*.md` → `/posts/<slug>`, `pages/**/*.md` → `/pages/<slug>`, `images/foo.png` → `/images/foo.png`

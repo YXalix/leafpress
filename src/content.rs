@@ -53,13 +53,37 @@ fn comrak_options() -> comrak::Options<'static> {
     opts.extension.strikethrough = true;
     opts.extension.autolink = true;
     opts.extension.header_ids = Some(String::new());
+    opts.extension.math_dollars = true;
     opts.render.unsafe_ = true;
     opts.render.github_pre_lang = true;
     opts
 }
 
 pub fn render_markdown(md: &str) -> String {
-    comrak::markdown_to_html(md, &comrak_options())
+    let opts = comrak_options();
+    let arena = comrak::Arena::new();
+    let root = comrak::parse_document(&arena, md, &opts);
+    // Server-side KaTeX: replace each Math node with the rendered HTML so pages need
+    // no client JS. On a render error keep the node, which comrak emits as a
+    // <span data-math-style> with the raw literal.
+    let inline_opts = katex::Opts::builder().display_mode(false).build().unwrap();
+    let display_opts = katex::Opts::builder().display_mode(true).build().unwrap();
+    for node in root.descendants() {
+        let mut data = node.data.borrow_mut();
+        if let NodeValue::Math(math) = &data.value {
+            let kopts = if math.display_math {
+                &display_opts
+            } else {
+                &inline_opts
+            };
+            if let Ok(html) = katex::render_with_opts(&math.literal, kopts) {
+                data.value = NodeValue::HtmlInline(html);
+            }
+        }
+    }
+    let mut buf = Vec::new();
+    comrak::html::format_document(root, &opts, &mut buf).expect("comrak render");
+    String::from_utf8(buf).expect("comrak output is utf-8")
 }
 
 /// Mirrors comrak html.rs collect_text so heading plain text (and thus anchor ids) matches
@@ -106,6 +130,10 @@ fn extract_toc_and_text(md: &str) -> (Vec<TocItem>, String) {
             }
             NodeValue::Text(literal) => text.push_str(literal),
             NodeValue::Code(code) => text.push_str(&code.literal),
+            NodeValue::Math(math) => {
+                text.push_str(&math.literal);
+                text.push(' ');
+            }
             NodeValue::CodeBlock(block) => {
                 text.push_str(&block.literal);
                 text.push(' ');
