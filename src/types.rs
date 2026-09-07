@@ -123,7 +123,7 @@ pub struct FileDiff {
 /// A dual-pane diff row: a hunk header, or one left/right cell pair
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum DiffRow {
-    /// "@@ -a,b +c,d @@" header (without the leading @@ markers stripped)
+    /// "@@ -a,b +c,d @@" header (with the @@ markers included)
     Hunk(String),
     Line {
         left: Option<DiffCell>,
@@ -150,4 +150,5 @@ pub enum DiffLineKind {
 pub enum GitOp {
     Pull,
     Push,
+    StageAll,
 }

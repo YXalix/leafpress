@@ -22,18 +22,6 @@ pub struct Post {
     pub toc: Vec<TocItem>,
     /// Plain-text body with markdown syntax stripped, used for search matching and snippets
     pub text: String,
-    /// Actual file path (may be in a subdirectory); admin edit/delete locates files by this
-    pub path: PathBuf,
-}
-
-impl ContentIndex {
-    pub fn find(&self, kind: ContentKind, slug: &str) -> Option<&Post> {
-        let list = match kind {
-            ContentKind::Post => &self.posts,
-            ContentKind::Page => &self.pages,
-        };
-        list.iter().find(|p| p.meta.slug == slug)
-    }
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -193,7 +181,6 @@ fn parse_post(raw: &str, path: &Path, root: &Path, kind: ContentKind) -> Option<
         html: render_markdown(&parsed.content),
         toc,
         text,
-        path: path.to_path_buf(),
     })
 }
 
@@ -307,17 +294,7 @@ pub fn spawn_git_sync(content_dir: PathBuf, interval_secs: u64, proxy: Option<St
     }
     std::thread::spawn(move || loop {
         std::thread::sleep(std::time::Duration::from_secs(interval_secs));
-        let mut cmd = std::process::Command::new("git");
-        // safe.directory: the repo may be owned by a different user than the service
-        // (e.g. cloned by root) — git refuses cross-user access otherwise
-        cmd.arg("-c").arg(format!(
-            "safe.directory={}",
-            content_dir
-                .canonicalize()
-                .unwrap_or_else(|_| content_dir.clone())
-                .display()
-        ));
-        cmd.arg("-C").arg(&content_dir);
+        let mut cmd = crate::util::git_command(&content_dir, &[]);
         // Explicit proxy control: configured proxy when set, otherwise force direct
         // (empty value also disables any http_proxy env inherited from the server process)
         cmd.arg("-c")

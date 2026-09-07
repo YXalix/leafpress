@@ -30,6 +30,9 @@ fn hash_dir(hasher: &mut DefaultHasher, dir: &Path) {
 fn main() {
     let mut hasher = DefaultHasher::new();
     hash_dir(&mut hasher, Path::new("target/site"));
-    println!("cargo:rustc-env=LEAFPRESS_ASSETS_HASH={:016x}", hasher.finish());
+    println!(
+        "cargo:rustc-env=LEAFPRESS_ASSETS_HASH={:016x}",
+        hasher.finish()
+    );
     println!("cargo:rerun-if-changed=target/site");
 }

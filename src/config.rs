@@ -80,10 +80,7 @@ impl Config {
     /// the same paths. No-op when the config path itself is relative (plain ./config.toml —
     /// the local dev case — keeps resolving against the working directory as before).
     pub(crate) fn anchor_to_config_dir(&mut self, config_path: &std::path::Path) {
-        let Some(base) = config_path
-            .parent()
-            .filter(|p| !p.as_os_str().is_empty())
-        else {
+        let Some(base) = config_path.parent().filter(|p| !p.as_os_str().is_empty()) else {
             return;
         };
         for p in [&mut self.content_dir, &mut self.database] {

@@ -91,3 +91,21 @@ pub fn debounce_string(
     });
     debounced
 }
+
+/// Builds `git -c safe.directory=<dir> -C <dir> <args...>` (no shell). The repo may be owned
+/// by a different user than the caller (service user vs root, or vice versa) — without
+/// safe.directory git refuses with "detected dubious ownership". Command-line -c is a
+/// protected config scope, so git honors it. Canonicalized because git compares realpaths;
+/// falls back to the non-canonical path on error
+#[cfg(feature = "ssr")]
+pub fn git_command(dir: &std::path::Path, args: &[&str]) -> std::process::Command {
+    let safe = format!(
+        "safe.directory={}",
+        dir.canonicalize()
+            .unwrap_or_else(|_| dir.to_path_buf())
+            .display()
+    );
+    let mut cmd = std::process::Command::new("git");
+    cmd.arg("-c").arg(safe).arg("-C").arg(dir).args(args);
+    cmd
+}

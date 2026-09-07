@@ -5,6 +5,8 @@ use leptos::prelude::*;
 use crate::types::{PostMeta, PostView, SearchResult};
 
 #[cfg(feature = "ssr")]
+use crate::content::Post;
+#[cfg(feature = "ssr")]
 use crate::state::AppState;
 #[cfg(feature = "ssr")]
 use crate::util::search_terms;
@@ -27,35 +29,40 @@ pub async fn list_posts() -> Result<Vec<PostMeta>, ServerFnError> {
         .collect())
 }
 
+/// Clones the reader-facing view out of an indexed post
+#[cfg(feature = "ssr")]
+fn post_view(p: &Post) -> PostView {
+    PostView {
+        meta: p.meta.clone(),
+        html: p.html.clone(),
+        toc: p.toc.clone(),
+    }
+}
+
+/// Shared slug lookup behind get_post/get_page; `pred` carries the visibility rule
+#[cfg(feature = "ssr")]
+fn find_view(
+    list: &[Post],
+    pred: impl Fn(&Post) -> bool,
+) -> Result<Option<PostView>, ServerFnError> {
+    Ok(list.iter().find(|p| pred(p)).map(post_view))
+}
+
 #[server]
 pub async fn get_post(slug: String) -> Result<Option<PostView>, ServerFnError> {
     let state = expect_context::<AppState>();
     let index = state.index.read();
-    Ok(index
-        .posts
-        .iter()
-        .find(|p| p.meta.slug == slug && p.meta.is_published())
-        .map(|p| PostView {
-            meta: p.meta.clone(),
-            html: p.html.clone(),
-            toc: p.toc.clone(),
-        }))
+    find_view(&index.posts, |p| {
+        p.meta.slug == slug && p.meta.is_published()
+    })
 }
 
 #[server]
 pub async fn get_page(slug: String) -> Result<Option<PostView>, ServerFnError> {
     let state = expect_context::<AppState>();
     let index = state.index.read();
-        // hidden pages are excluded from listings but remain directly accessible via URL (e.g. resume)
-    Ok(index
-        .pages
-        .iter()
-        .find(|p| p.meta.slug == slug && !p.meta.is_draft())
-        .map(|p| PostView {
-            meta: p.meta.clone(),
-            html: p.html.clone(),
-            toc: p.toc.clone(),
-        }))
+    // hidden pages are excluded from listings but remain directly accessible via URL (e.g. resume)
+    find_view(&index.pages, |p| p.meta.slug == slug && !p.meta.is_draft())
 }
 
 /// Builds a snippet of CONTEXT chars before/after the first body hit; falls back to the opening when the body has no hit

@@ -7,8 +7,8 @@ use leptos_router::hooks::use_navigate;
 use super::login_prompt;
 use crate::api::{
     admin_git_commit_push, admin_git_diff, admin_git_pull, admin_git_read_file,
-    admin_git_save_file, admin_git_stage, admin_git_stage_all, admin_git_status,
-    admin_git_unstage, admin_git_update_line, admin_logout,
+    admin_git_save_file, admin_git_stage, admin_git_stage_all, admin_git_status, admin_git_unstage,
+    admin_git_update_line, admin_logout,
 };
 use crate::types::{DiffCell, DiffLineKind, DiffRow, FileDiff, GitOp};
 
@@ -75,16 +75,21 @@ fn cell_text_view(text: String, segs: Option<Segments>) -> impl IntoView {
     }
 }
 
+/// Diff-cell CSS class for a line kind
+fn cell_class(kind: DiffLineKind) -> &'static str {
+    match kind {
+        DiffLineKind::Del => "diff-cell cell-del",
+        DiffLineKind::Add => "diff-cell cell-add",
+        DiffLineKind::Context => "diff-cell",
+    }
+}
+
 /// One cell of a dual-pane diff row (line number + text, colored by kind).
 /// `segs` carries intra-line highlight segments when the row pairs a deletion with an addition.
 fn cell_view(cell: &Option<DiffCell>, segs: Option<Segments>) -> impl IntoView {
     match cell {
         Some(c) => {
-            let class = match c.kind {
-                DiffLineKind::Del => "diff-cell cell-del",
-                DiffLineKind::Add => "diff-cell cell-add",
-                DiffLineKind::Context => "diff-cell",
-            };
+            let class = cell_class(c.kind);
             let text = c.text.clone();
             view! {
                 <div class=class>
@@ -107,19 +112,23 @@ fn FileDiffView(
     refresh: RwSignal<u32>,
     feedback: RwSignal<Option<(bool, String)>>,
 ) -> impl IntoView {
-    let path = file.path.clone();
+    let FileDiff {
+        path,
+        status,
+        staged,
+        rows,
+        truncated,
+    } = file;
     let editing = RwSignal::new(false);
     let busy = RwSignal::new(false);
     let draft = RwSignal::new(String::new());
 
-    let (chip_label, chip_class) = match file.status.as_str() {
+    let (chip_label, chip_class) = match status.as_str() {
         "added" => ("新增", "badge badge-published"),
         "deleted" => ("删除", "badge badge-draft"),
         _ => ("修改", "badge"),
     };
-    let can_edit = file.status != "deleted";
-    let truncated = file.truncated;
-    let rows = file.rows.clone();
+    let can_edit = status != "deleted";
     let mut stat_add = 0usize;
     let mut stat_del = 0usize;
     for row in &rows {
@@ -142,9 +151,14 @@ fn FileDiffView(
         ev.prevent_default();
         let Some(area) = area_ref.get() else { return };
         let value = area.value();
-        let start =
-            utf16_to_byte(&value, area.selection_start().ok().flatten().unwrap_or(0) as usize);
-        let end = utf16_to_byte(&value, area.selection_end().ok().flatten().unwrap_or(0) as usize);
+        let start = utf16_to_byte(
+            &value,
+            area.selection_start().ok().flatten().unwrap_or(0) as usize,
+        );
+        let end = utf16_to_byte(
+            &value,
+            area.selection_end().ok().flatten().unwrap_or(0) as usize,
+        );
         let mut next = value;
         next.replace_range(start..end, "  ");
         area.set_value(&next);
@@ -242,7 +256,6 @@ fn FileDiffView(
         }
     };
 
-    let staged = file.staged;
     let on_stage = {
         let path = path.clone();
         move |ev: leptos::ev::MouseEvent| {
@@ -258,7 +271,11 @@ fn FileDiffView(
                 busy.set(false);
                 match result {
                     Ok(()) => {
-                        let msg = if staged { "已取消暂存" } else { "已暂存" };
+                        let msg = if staged {
+                            "已取消暂存"
+                        } else {
+                            "已暂存"
+                        };
                         feedback.set(Some((false, msg.into())));
                         refresh.update(|n| *n += 1);
                     }
@@ -273,7 +290,7 @@ fn FileDiffView(
             <summary class="diff-file-head">
                 <span class=chip_class>{chip_label}</span>
                 {staged.then(|| view! { <span class="badge badge-staged">"已暂存"</span> })}
-                <span class="diff-path">{file.path.clone()}</span>
+                <span class="diff-path">{path.clone()}</span>
                 <span class="diff-stat">
                     <span class="stat-add">{format!("+{stat_add}")}</span>
                     <span class="stat-del">{format!("−{stat_del}")}</span>
@@ -331,11 +348,7 @@ fn FileDiffView(
                                     Some(c) if can_edit => {
                                         let no = c.no;
                                         let text = c.text.clone();
-                                        let class = match c.kind {
-                                            DiffLineKind::Del => "diff-cell cell-del",
-                                            DiffLineKind::Add => "diff-cell cell-add",
-                                            DiffLineKind::Context => "diff-cell",
-                                        };
+                                        let class = cell_class(c.kind);
                                         let save_row = save_line.clone();
                                         view! {
                                             <div class=class>
@@ -451,33 +464,27 @@ pub fn AdminGit() -> impl IntoView {
             let result = match op {
                 GitOp::Pull => admin_git_pull().await,
                 GitOp::Push => admin_git_commit_push(msg).await,
+                GitOp::StageAll => admin_git_stage_all()
+                    .await
+                    .map(|()| "已暂存全部改动".to_string()),
             };
             feedback.set(Some(match result {
                 Ok(out) => (false, out),
                 Err(e) => (true, e.to_string()),
             }));
             pending.set(false);
-            message.set(String::new());
+            // pull/push consume the commit-message input; staging leaves it alone
+            match op {
+                GitOp::Pull | GitOp::Push => message.set(String::new()),
+                GitOp::StageAll => {}
+            }
             refresh.update(|n| *n += 1);
         });
     };
 
     let on_pull = move |_| run_op(GitOp::Pull);
     let on_push = move |_| run_op(GitOp::Push);
-
-    let on_stage_all = move |_| {
-        pending.set(true);
-        feedback.set(None);
-        leptos::task::spawn_local(async move {
-            let result = admin_git_stage_all().await;
-            feedback.set(Some(match result {
-                Ok(()) => (false, "已暂存全部改动".into()),
-                Err(e) => (true, e.to_string()),
-            }));
-            pending.set(false);
-            refresh.update(|n| *n += 1);
-        });
-    };
+    let on_stage_all = move |_| run_op(GitOp::StageAll);
 
     let on_logout = move |_| {
         let navigate = navigate.clone();

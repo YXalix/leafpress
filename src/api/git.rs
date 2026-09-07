@@ -14,20 +14,7 @@ use crate::types::{FileDiff, GitStatus};
 /// Runs git with fixed args (no shell); on failure returns stderr/stdout as the error message
 #[cfg(feature = "ssr")]
 fn run_git(dir: &std::path::Path, args: &[&str]) -> Result<String, ServerFnError> {
-    // Scoped safe.directory: the service runs as the leafpress user while the repo may have
-    // been cloned/rsynced by root — without this git refuses with "detected dubious
-    // ownership". Command-line -c is a protected config scope, so git honors it, and it is
-    // limited to exactly the repo we manage. Canonicalized because git compares realpaths.
-    let safe = format!(
-        "safe.directory={}",
-        dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf()).display()
-    );
-    let out = std::process::Command::new("git")
-        .arg("-c")
-        .arg(safe)
-        .arg("-C")
-        .arg(dir)
-        .args(args)
+    let out = crate::util::git_command(dir, args)
         .output()
         .map_err(|e| ServerFnError::new(format!("无法运行 git: {e}")))?;
     let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
@@ -131,9 +118,7 @@ fn resolve_in_repo(dir: &std::path::Path, rel: &str) -> Result<std::path::PathBu
 
 /// Paths with staged changes (porcelain X column not blank/?); -z keeps paths raw (no quoting)
 #[cfg(feature = "ssr")]
-fn staged_paths(
-    dir: &std::path::Path,
-) -> Result<std::collections::HashSet<String>, ServerFnError> {
+fn staged_paths(dir: &std::path::Path) -> Result<std::collections::HashSet<String>, ServerFnError> {
     let out = run_git(dir, &["status", "--porcelain=v1", "-z"])?;
     let mut set = std::collections::HashSet::new();
     let mut fields = out.split('\0');
@@ -157,16 +142,17 @@ fn staged_paths(
 
 /// Pairs a run of deleted lines with the following added lines onto shared rows
 #[cfg(feature = "ssr")]
-fn flush_pairs(file: &mut FileDiff, dels: &mut Vec<DiffCell>, adds: &mut Vec<DiffCell>) {
+fn flush_pairs(file: &mut FileDiff, dels: &mut Vec<DiffCell>, adds: &mut Vec<DiffCell>) -> usize {
     let n = dels.len().max(adds.len());
-    for i in 0..n {
+    let mut dels = dels.drain(..);
+    let mut adds = adds.drain(..);
+    for _ in 0..n {
         file.rows.push(DiffRow::Line {
-            left: if i < dels.len() { Some(dels[i].clone()) } else { None },
-            right: if i < adds.len() { Some(adds[i].clone()) } else { None },
+            left: dels.next(),
+            right: adds.next(),
         });
     }
-    dels.clear();
-    adds.clear();
+    n
 }
 
 /// Parses `git -c core.quotePath=false diff HEAD --no-color` into per-file dual-pane rows.
@@ -182,6 +168,8 @@ fn parse_diff(text: &str) -> Vec<FileDiff> {
     let mut new_no = 0u32;
     let mut dels: Vec<DiffCell> = Vec::new();
     let mut adds: Vec<DiffCell> = Vec::new();
+    // Running count of rows in `files` + `cur`, so the total cap check below is O(1)
+    let mut total_rows = 0usize;
     let mut stop = false;
 
     for line in text.lines() {
@@ -190,14 +178,14 @@ fn parse_diff(text: &str) -> Vec<FileDiff> {
         }
         if let Some(rest) = line.strip_prefix("diff --git ") {
             if let Some(mut f) = cur.take() {
-                flush_pairs(&mut f, &mut dels, &mut adds);
+                total_rows += flush_pairs(&mut f, &mut dels, &mut adds);
                 files.push(f);
             }
             // "a/path b/path": take the b/ side as a fallback (binary files have no ---/+++
             // header); text files get their real path from the ---/+++ lines below
             let path = rest
-                .split(" b/")
-                .last()
+                .rsplit(" b/")
+                .next()
                 .unwrap_or(rest)
                 .trim_matches('"')
                 .to_string();
@@ -217,20 +205,18 @@ fn parse_diff(text: &str) -> Vec<FileDiff> {
         } else if line.starts_with("deleted file mode") {
             f.status = "deleted".into();
         } else if let Some(hunk) = line.strip_prefix("@@") {
-            flush_pairs(f, &mut dels, &mut adds);
+            total_rows += flush_pairs(f, &mut dels, &mut adds);
             // "@@ -old[,n] +new[,n] @@ ...": recover the two start line numbers
-            let mut nums = hunk
-                .split_whitespace()
-                .take(2)
-                .filter_map(|tok| {
-                    tok.trim_start_matches(['-', '+'])
-                        .split(',')
-                        .next()
-                        .and_then(|n| n.parse::<u32>().ok())
-                });
+            let mut nums = hunk.split_whitespace().take(2).filter_map(|tok| {
+                tok.trim_start_matches(['-', '+'])
+                    .split(',')
+                    .next()
+                    .and_then(|n| n.parse::<u32>().ok())
+            });
             old_no = nums.next().unwrap_or(0);
             new_no = nums.next().unwrap_or(0);
             f.rows.push(DiffRow::Hunk(line.to_string()));
+            total_rows += 1;
             in_hunk = true;
         } else if !in_hunk {
             // File header lines. The path comes from ---/+++ (authoritative even for renames
@@ -270,7 +256,7 @@ fn parse_diff(text: &str) -> Vec<FileDiff> {
             // "\ No newline at end of file" — no row of its own
             continue;
         } else {
-            flush_pairs(f, &mut dels, &mut adds);
+            total_rows += flush_pairs(f, &mut dels, &mut adds);
             let text = line.strip_prefix(' ').unwrap_or(line).to_string();
             f.rows.push(DiffRow::Line {
                 left: Some(DiffCell {
@@ -284,13 +270,11 @@ fn parse_diff(text: &str) -> Vec<FileDiff> {
                     kind: DiffLineKind::Context,
                 }),
             });
+            total_rows += 1;
             old_no += 1;
             new_no += 1;
         }
-        if files.iter().map(|f| f.rows.len()).sum::<usize>()
-            + cur.as_ref().map(|f| f.rows.len()).unwrap_or(0)
-            >= MAX_ROWS_TOTAL
-        {
+        if total_rows >= MAX_ROWS_TOTAL {
             if let Some(f) = cur.as_mut() {
                 f.truncated = true;
             }
@@ -422,7 +406,14 @@ pub async fn admin_git_diff() -> Result<Vec<FileDiff>, ServerFnError> {
     // escapes — escaped paths don't resolve on disk (the editor then fails with 文件不存在)
     let raw = run_git(
         &dir,
-        &["-c", "core.quotePath=false", "diff", "HEAD", "--no-color", "--"],
+        &[
+            "-c",
+            "core.quotePath=false",
+            "diff",
+            "HEAD",
+            "--no-color",
+            "--",
+        ],
     )?;
     let mut files = parse_diff(&raw);
     for path in untracked_files(&dir)? {
@@ -438,6 +429,10 @@ pub async fn admin_git_diff() -> Result<Vec<FileDiff>, ServerFnError> {
     Ok(files)
 }
 
+/// Max file size the admin diff-pane editor will read or write
+#[cfg(feature = "ssr")]
+const MAX_EDIT_BYTES: usize = 1024 * 1024;
+
 /// Reads a working-tree file (repo-relative path) for the diff pane editor
 #[server]
 pub async fn admin_git_read_file(path: String) -> Result<String, ServerFnError> {
@@ -445,9 +440,8 @@ pub async fn admin_git_read_file(path: String) -> Result<String, ServerFnError> 
     require_admin(&state).await?;
     let dir = git_repo(&state)?;
     let full = resolve_in_repo(&dir, &path)?;
-    const MAX: usize = 1024 * 1024;
     let bytes = std::fs::read(&full).map_err(|e| ServerFnError::new(format!("读取失败: {e}")))?;
-    if bytes.len() > MAX {
+    if bytes.len() > MAX_EDIT_BYTES {
         return Err(ServerFnError::new("文件过大（>1MB），不支持在线编辑"));
     }
     String::from_utf8(bytes).map_err(|_| ServerFnError::new("不是 UTF-8 文本文件，不支持编辑"))
@@ -459,7 +453,7 @@ pub async fn admin_git_save_file(path: String, content: String) -> Result<(), Se
     let state = expect_context::<AppState>();
     require_admin(&state).await?;
     let dir = git_repo(&state)?;
-    if content.len() > 1024 * 1024 {
+    if content.len() > MAX_EDIT_BYTES {
         return Err(ServerFnError::new("内容过大（>1MB）"));
     }
     let full = resolve_in_repo(&dir, &path)?;
@@ -483,9 +477,9 @@ pub async fn admin_git_update_line(
         return Err(ServerFnError::new("行内编辑只支持单行内容"));
     }
     let full = resolve_in_repo(&dir, &path)?;
-    let text = std::fs::read_to_string(&full)
-        .map_err(|e| ServerFnError::new(format!("读取失败: {e}")))?;
-    if text.len() > 1024 * 1024 {
+    let text =
+        std::fs::read_to_string(&full).map_err(|e| ServerFnError::new(format!("读取失败: {e}")))?;
+    if text.len() > MAX_EDIT_BYTES {
         return Err(ServerFnError::new("文件过大（>1MB），不支持行内编辑"));
     }
     let mut lines: Vec<String> = text.split('\n').map(str::to_string).collect();
@@ -494,7 +488,11 @@ pub async fn admin_git_update_line(
         return Err(ServerFnError::new("行号超出范围（文件可能已变化，请刷新）"));
     };
     let keep_cr = old.ends_with('\r');
-    lines[idx] = if keep_cr { format!("{content}\r") } else { content };
+    lines[idx] = if keep_cr {
+        format!("{content}\r")
+    } else {
+        content
+    };
     std::fs::write(&full, lines.join("\n"))
         .map_err(|e| ServerFnError::new(format!("写入失败: {e}")))
 }
@@ -546,7 +544,11 @@ pub async fn admin_git_pull() -> Result<String, ServerFnError> {
         Ok(new_index) => *state.index.write() = new_index,
         Err(e) => return Err(ServerFnError::new(format!("拉取成功但重载内容失败: {e}"))),
     }
-    Ok(if out.is_empty() { "已是最新".into() } else { out })
+    Ok(if out.is_empty() {
+        "已是最新".into()
+    } else {
+        out
+    })
 }
 
 #[server]
@@ -559,7 +561,10 @@ pub async fn admin_git_commit_push(message: String) -> Result<String, ServerFnEr
         return Err(ServerFnError::new("提交信息过长"));
     }
     let message = if message.is_empty() {
-        format!("content update {}", chrono::Local::now().format("%Y-%m-%d %H:%M"))
+        format!(
+            "content update {}",
+            chrono::Local::now().format("%Y-%m-%d %H:%M")
+        )
     } else {
         message
     };
@@ -589,7 +594,11 @@ pub async fn admin_git_commit_push(message: String) -> Result<String, ServerFnEr
             if e.to_string().contains("no upstream branch")
                 || e.to_string().contains("set-upstream") =>
         {
-            log.push_str(&run_git_net(&dir, &["push", "-u", "origin", "HEAD"], proxy)?);
+            log.push_str(&run_git_net(
+                &dir,
+                &["push", "-u", "origin", "HEAD"],
+                proxy,
+            )?);
         }
         Err(e) => return Err(e),
     }

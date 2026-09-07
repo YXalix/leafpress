@@ -136,10 +136,7 @@ pub fn init(args: InitArgs) -> Result<()> {
     if content_dir != Path::new("content") {
         config.push_str(&format!("content_dir = \"{}\"\n", content_dir.display()));
     }
-    if let Some(parent) = config_path
-        .parent()
-        .filter(|p| !p.as_os_str().is_empty())
-    {
+    if let Some(parent) = config_path.parent().filter(|p| !p.as_os_str().is_empty()) {
         std::fs::create_dir_all(parent)?;
     }
     std::fs::write(&config_path, config)?;
@@ -206,10 +203,16 @@ fn setup_content(dir: &Path, action: &ContentAction) -> Result<()> {
     match action {
         ContentAction::Clone(url) => {
             if dir.join(".git").exists() {
-                println!(">> {} is already a git repository, running git pull", dir.display());
+                println!(
+                    ">> {} is already a git repository, running git pull",
+                    dir.display()
+                );
                 run_git(dir, &["pull", "--ff-only"])?;
             } else if dir.exists() && dir.read_dir()?.next().is_some() {
-                bail!("Directory is not empty and not a git repository: {}", dir.display());
+                bail!(
+                    "Directory is not empty and not a git repository: {}",
+                    dir.display()
+                );
             } else {
                 println!(">> git clone {url} -> {}", dir.display());
                 let status = Command::new("git")
@@ -265,18 +268,7 @@ impl Report {
 }
 
 fn run_git(dir: &Path, git_args: &[&str]) -> Result<String> {
-    // safe.directory: doctor/CLI often run as root on a content repo owned by the
-    // leafpress service user — git refuses cross-user access otherwise
-    let safe = format!(
-        "safe.directory={}",
-        dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf()).display()
-    );
-    let out = Command::new("git")
-        .arg("-c")
-        .arg(safe)
-        .arg("-C")
-        .arg(dir)
-        .args(git_args)
+    let out = crate::util::git_command(dir, git_args)
         .output()
         .context("Failed to run git")?;
     if !out.status.success() {
@@ -329,10 +321,7 @@ fn check_config(r: &mut Report) -> Option<Config> {
     let raw = match std::fs::read_to_string(&path) {
         Ok(s) => s,
         Err(_) => {
-            r.fail(format!(
-                "{} not found → run leafpress init",
-                path.display()
-            ));
+            r.fail(format!("{} not found → run leafpress init", path.display()));
             return None;
         }
     };
@@ -346,7 +335,9 @@ fn check_config(r: &mut Report) -> Option<Config> {
                 r.ok("admin_password is set");
             }
             if let Some(proxy) = &cfg.git_proxy {
-                r.info(format!("git_proxy = {proxy}: git fetch/pull/push go through this proxy"));
+                r.info(format!(
+                    "git_proxy = {proxy}: git fetch/pull/push go through this proxy"
+                ));
             }
             Some(cfg)
         }
@@ -369,7 +360,10 @@ async fn check_content(r: &mut Report, cfg: &Config) {
     if dir.read_dir().is_ok() {
         r.ok("Directory exists and is readable");
     } else {
-        r.fail(format!("{} is not readable (permission problem)", dir.display()));
+        r.fail(format!(
+            "{} is not readable (permission problem)",
+            dir.display()
+        ));
         return;
     }
 
@@ -417,7 +411,9 @@ async fn check_content(r: &mut Report, cfg: &Config) {
 async fn check_database(r: &mut Report, cfg: &Config) {
     let path = Path::new(&cfg.database);
     if !path.exists() {
-        r.info("Database does not exist; it will be created on first start (comments/likes tables)");
+        r.info(
+            "Database does not exist; it will be created on first start (comments/likes tables)",
+        );
         return;
     }
     use sqlx::sqlite::SqliteConnectOptions;
@@ -442,7 +438,9 @@ async fn check_database(r: &mut Report, cfg: &Config) {
             if missing.is_empty() {
                 r.ok("comments/likes tables present");
             } else {
-                r.info(format!("Missing tables {missing:?}; they will be created on first start"));
+                r.info(format!(
+                    "Missing tables {missing:?}; they will be created on first start"
+                ));
             }
         }
         Err(e) => r.fail(format!("Database query failed: {e}")),
@@ -472,7 +470,9 @@ fn check_addr(r: &mut Report) {
             drop(l);
             r.ok(format!("{addr} can be bound"));
         }
-        Err(_) => r.info(format!("{addr} cannot be bound (normal if the service is already running)")),
+        Err(_) => r.info(format!(
+            "{addr} cannot be bound (normal if the service is already running)"
+        )),
     }
 }
 
@@ -509,10 +509,7 @@ pub fn update() -> Result<()> {
     println!(">> Downloading {url}");
     let mut curl = Command::new("curl");
     curl.args(["-fSL", "--progress-bar"]);
-    if let Some(token) = std::env::var("GITHUB_TOKEN")
-        .ok()
-        .filter(|t| !t.is_empty())
-    {
+    if let Some(token) = std::env::var("GITHUB_TOKEN").ok().filter(|t| !t.is_empty()) {
         curl.arg("-H").arg(format!("Authorization: Bearer {token}"));
     }
     let download = curl.arg(&url).arg("-o").arg(&tmp).status();
@@ -530,15 +527,15 @@ pub fn update() -> Result<()> {
     // Replacing the running binary: on Linux, rename-overwrite is safe (the old process keeps using the unlinked inode)
     use std::os::unix::fs::PermissionsExt;
     std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o755))?;
-    std::fs::rename(&tmp, &exe).context("Failed to replace the binary (insufficient permissions? run with sudo)")?;
+    std::fs::rename(&tmp, &exe)
+        .context("Failed to replace the binary (insufficient permissions? run with sudo)")?;
     println!(">> Updated {}", exe.display());
 
     // Restart directly if running under systemd; otherwise prompt for a manual restart
     let restarted = Command::new("systemctl")
         .args(["restart", "leafpress"])
         .status()
-        .map(|s| s.success())
-        .unwrap_or(false);
+        .is_ok_and(|s| s.success());
     if restarted {
         let active = Command::new("systemctl")
             .args(["is-active", "leafpress"])
@@ -547,7 +544,9 @@ pub fn update() -> Result<()> {
             .unwrap_or_default();
         println!(">> Service restarted, status: {active}");
     } else {
-        println!(">> Not restarted via systemd; restart the service manually or re-run the program");
+        println!(
+            ">> Not restarted via systemd; restart the service manually or re-run the program"
+        );
     }
     Ok(())
 }

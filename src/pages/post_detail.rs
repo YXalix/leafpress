@@ -1,22 +1,15 @@
 use leptos::prelude::*;
-use leptos_router::hooks::use_params_map;
 
 use crate::api::get_post;
 use crate::components::card_meta::CardMeta;
 use crate::components::comment::CommentSection;
 use crate::components::like_button::LikeButton;
 use crate::components::toc::Toc;
+use crate::pages::slug_param;
 
 #[component]
 pub fn PostDetail() -> impl IntoView {
-    let params = use_params_map();
-    let slug = move || {
-        params
-            .read()
-            .get("slug")
-            .map(|s| s.to_string())
-            .unwrap_or_default()
-    };
+    let slug = slug_param();
     let post = Resource::new(slug, |slug| async move { get_post(slug).await });
 
     view! {
