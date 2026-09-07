@@ -270,3 +270,27 @@ pub fn spawn_watcher(content_dir: PathBuf, index: SharedIndex) {
         }
     });
 }
+
+/// Periodically fast-forward the content dir from its git remote; the watcher picks up any
+/// changes and hot-reloads. No-op when disabled or the content dir is not a git repo.
+pub fn spawn_git_sync(content_dir: PathBuf, interval_secs: u64) {
+    if interval_secs == 0 || !content_dir.join(".git").exists() {
+        return;
+    }
+    std::thread::spawn(move || loop {
+        std::thread::sleep(std::time::Duration::from_secs(interval_secs));
+        match std::process::Command::new("git")
+            .arg("-C")
+            .arg(&content_dir)
+            .args(["pull", "--ff-only", "--quiet"])
+            .output()
+        {
+            Ok(o) if o.status.success() => {}
+            Ok(o) => eprintln!(
+                "[content] git pull failed: {}",
+                String::from_utf8_lossy(&o.stderr).trim()
+            ),
+            Err(e) => eprintln!("[content] failed to run git: {e}"),
+        }
+    });
+}

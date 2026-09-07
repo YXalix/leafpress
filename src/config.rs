@@ -13,6 +13,9 @@ pub struct Config {
     pub database: String,
     /// true = /admin is read-only (its save/delete disabled); content syncs via git only
     pub admin_readonly: bool,
+    /// Seconds between built-in `git pull --ff-only` on content_dir; 0 disables.
+    /// No-op when content_dir is not a git repo. Pulled changes hot-reload via the watcher.
+    pub content_pull_interval_secs: u64,
 }
 
 impl Default for Config {
@@ -23,6 +26,7 @@ impl Default for Config {
             content_dir: "content".into(),
             database: "site.db".into(),
             admin_readonly: false,
+            content_pull_interval_secs: 300,
         }
     }
 }

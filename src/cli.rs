@@ -390,7 +390,7 @@ async fn check_content(r: &mut Report, cfg: &Config) {
     match run_git(&dir, &["status", "--porcelain"]) {
         Ok(out) if out.is_empty() => r.ok("git working tree clean"),
         Ok(_) => r.warn(
-            "git has uncommitted changes/untracked files → cron's pull --ff-only may fail silently; run git status to inspect",
+            "git has uncommitted changes/untracked files → periodic pull --ff-only may fail silently; run git status to inspect",
         ),
         Err(e) => r.warn(format!(
             "git status failed: {e} (cross-user access may need git config --global --add safe.directory)"
@@ -410,6 +410,14 @@ async fn check_content(r: &mut Report, cfg: &Config) {
                 head
             ));
         }
+    }
+    if cfg.content_pull_interval_secs > 0 {
+        r.info(format!(
+            "built-in git pull every {}s (content_pull_interval_secs)",
+            cfg.content_pull_interval_secs
+        ));
+    } else {
+        r.info("built-in git pull disabled (content_pull_interval_secs = 0)");
     }
 }
 

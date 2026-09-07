@@ -89,13 +89,9 @@ Body in GFM: tables, task lists, code blocks all work.
 - `posts/**/*.md` → `/posts/<slug>`, `pages/**/*.md` → `/pages/<slug>`, `images/foo.png` → `/images/foo.png`
 - Subdirectories are for organization only — URLs stay flat, slugs are globally unique; `category` defaults to the folder name
 
-**Server auto-sync**: at install time choose "clone git repo" as the content source (read-only credential: a token embedded in the URL, `https://<token>@github.com/you/content.git`, or a deploy key), then pull on a root crontab:
+**Server auto-sync**: at install time choose "clone git repo" as the content source (read-only credential: a token embedded in the URL, `https://<token>@github.com/you/content.git`, or a deploy key). The server then fast-forwards the content dir itself every `content_pull_interval_secs` (default 300, `0` disables) and hot-reloads — no cron job needed.
 
-```cron
-*/5 * * * * git -C /srv/leafpress-content pull -q --ff-only
-```
-
-**Single writing entry point**: with `admin_readonly = true` in config.toml (restart to apply), /admin can browse and moderate but all create/edit/delete goes through local git. If the cron pull starts failing, content probably diverged from earlier /admin edits — check `git -C <content-dir> status`.
+**Single writing entry point**: with `admin_readonly = true` in config.toml (restart to apply), /admin can browse and moderate but all create/edit/delete goes through local git. If pulls start failing, content probably diverged from earlier /admin edits — check `git -C <content-dir> status`.
 
 ## Adding a page
 

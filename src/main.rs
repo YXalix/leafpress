@@ -116,7 +116,8 @@ async fn serve() -> anyhow::Result<()> {
     let images_dir = content_dir.join("images");
     let index = leafpress::content::SharedIndex::default();
     *index.write() = leafpress::content::scan(&content_dir)?;
-    leafpress::content::spawn_watcher(content_dir, index.clone());
+    leafpress::content::spawn_watcher(content_dir.clone(), index.clone());
+    leafpress::content::spawn_git_sync(content_dir, config.content_pull_interval_secs);
 
     let state = AppState {
         leptos_options: leptos_options.clone(),
