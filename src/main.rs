@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use axum::body::Body;
 use axum::extract::Request;
-use axum::http::{header, HeaderValue};
+use axum::http::{header, HeaderValue, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::Response;
 use axum::Router;
@@ -15,6 +15,11 @@ use leafpress::state::AppState;
 use leptos::prelude::*;
 use leptos_axum::{generate_route_list, LeptosRoutes};
 
+/// build.rs fingerprints target/site into LEAPTRESS_ASSETS_HASH; asset filenames
+/// carry no content hash, so it doubles as a strong ETag: clients revalidate on
+/// every visit (no-cache) but get an empty 304 until a new binary is deployed.
+const ASSETS_ETAG: &str = concat!("\"leafpress-", env!("LEAFPRESS_ASSETS_HASH"), "\"");
+
 /// Static assets are served from the embedded target/site first (single-binary
 /// release deployment); anything not found falls through to the leptos routes /
 /// fallback to render pages.
@@ -22,6 +27,19 @@ async fn embedded_static(req: Request, next: Next) -> Response {
     let path = req.uri().path().trim_start_matches('/');
     if !path.is_empty() && !path.contains("..") {
         if let Some(file) = Assets::get(path) {
+            if req
+                .headers()
+                .get(header::IF_NONE_MATCH)
+                .and_then(|v| v.to_str().ok())
+                == Some(ASSETS_ETAG)
+            {
+                return Response::builder()
+                    .status(StatusCode::NOT_MODIFIED)
+                    .header(header::ETAG, ASSETS_ETAG)
+                    .header(header::CACHE_CONTROL, "no-cache")
+                    .body(Body::empty())
+                    .unwrap();
+            }
             let mime = mime_guess::from_path(path).first_or_octet_stream();
             let body = match file.data {
                 Cow::Borrowed(b) => Body::from(b),
@@ -33,6 +51,10 @@ async fn embedded_static(req: Request, next: Next) -> Response {
                 HeaderValue::from_str(mime.as_ref())
                     .unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream")),
             );
+            resp.headers_mut()
+                .insert(header::ETAG, HeaderValue::from_static(ASSETS_ETAG));
+            resp.headers_mut()
+                .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
             return resp;
         }
     }
@@ -124,6 +146,9 @@ async fn serve() -> anyhow::Result<()> {
             move |options| shell(options, site_name.clone()),
         ))
         .layer(middleware::from_fn(embedded_static))
+        // outermost layer: compress everything (SSR HTML, wasm/js/css); images are
+        // skipped by tower-http's default compression predicate
+        .layer(tower_http::compression::CompressionLayer::new())
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind(addr).await?;

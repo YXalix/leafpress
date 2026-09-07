@@ -30,7 +30,7 @@ serde = { version = "1", features = ["derive"] }
 sha2 = { version = "0.10", optional = true }
 sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite"], optional = true }
 toml = { version = "0.8", optional = true }
-tower-http = { version = "0.6", features = ["fs"], optional = true }
+tower-http = { version = "0.6", features = ["fs", "compression-gzip", "compression-br"], optional = true }
 wasm-bindgen = "0.2"
 web-sys = { version = "0.3", features = ["Storage", "Window", "Document", "Element", "DomRect", "HtmlElement", "HtmlInputElement"] }
 
@@ -71,4 +71,8 @@ site-addr = "127.0.0.1:3000"
 reload-port = 3001
 
 [profile.release]
-lto = "thin"
+# size-focused settings shrink the hydration wasm (~5.2MB -> ~2.5MB); the SSR
+# server shares this profile but the runtime cost of "z" is negligible here
+lto = true
+codegen-units = 1
+opt-level = "z"
