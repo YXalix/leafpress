@@ -94,9 +94,12 @@ fn check_toml_safe(key: &str, val: &str) -> Result<()> {
 // ---------- init ----------
 
 pub fn init(args: InitArgs) -> Result<()> {
-    let config_path = Path::new("config.toml");
+    let config_path = Config::path();
     if config_path.exists() && !args.force {
-        println!("config.toml already exists, leaving it as-is (add --force to regenerate)");
+        println!(
+            "{} already exists, leaving it as-is (add --force to regenerate)",
+            config_path.display()
+        );
         return Ok(());
     }
     let interactive = is_tty() && !args.yes;
@@ -148,8 +151,14 @@ pub fn init(args: InitArgs) -> Result<()> {
     if readonly {
         config.push_str("admin_readonly = true\n");
     }
-    std::fs::write(config_path, config)?;
-    println!(">> Generated config.toml");
+    if let Some(parent) = config_path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+    {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(&config_path, config)?;
+    println!(">> Generated {}", config_path.display());
     println!(">> Content dir: {}", content_dir.display());
     println!();
     println!("Next steps:");
@@ -323,16 +332,20 @@ fn summary(r: &Report) -> bool {
 }
 
 fn check_config(r: &mut Report) -> Option<Config> {
-    let raw = match std::fs::read_to_string("config.toml") {
+    let path = Config::path();
+    let raw = match std::fs::read_to_string(&path) {
         Ok(s) => s,
         Err(_) => {
-            r.fail("config.toml not found → run leafpress init");
+            r.fail(format!(
+                "{} not found → run leafpress init",
+                path.display()
+            ));
             return None;
         }
     };
     match toml::from_str::<Config>(&raw) {
         Ok(cfg) => {
-            r.ok("config.toml parsed successfully");
+            r.ok(format!("{} parsed successfully", path.display()));
             if cfg.admin_password.is_empty() || cfg.admin_password == "changeme" {
                 r.warn("admin_password is empty or default → change it with leafpress passwd");
             } else {
@@ -541,9 +554,9 @@ pub fn update() -> Result<()> {
 // ---------- passwd ----------
 
 pub fn passwd() -> Result<()> {
-    let path = Path::new("config.toml");
+    let path = Config::path();
     if !path.exists() {
-        bail!("config.toml not found; run leafpress init first");
+        bail!("{} not found; run leafpress init first", path.display());
     }
     if !is_tty() {
         bail!("passwd requires an interactive terminal");
@@ -558,7 +571,7 @@ pub fn passwd() -> Result<()> {
         bail!("Passwords do not match");
     }
 
-    let content = std::fs::read_to_string(path)?;
+    let content = std::fs::read_to_string(&path)?;
     let new_line = format!("admin_password = \"{p1}\"");
     let mut replaced = false;
     let out: Vec<String> = content
@@ -579,8 +592,8 @@ pub fn passwd() -> Result<()> {
     if content.ends_with('\n') && !out.ends_with('\n') {
         out.push('\n');
     }
-    std::fs::write(path, out)?;
-    println!(">> Updated config.toml");
+    std::fs::write(&path, out)?;
+    println!(">> Updated {}", path.display());
     println!("Note: restart the service to apply (sudo systemctl restart leafpress); all existing login sessions become invalid");
     Ok(())
 }

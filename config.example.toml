@@ -1,8 +1,11 @@
 # The only required field: /admin login password
 admin_password = "changeme"
 
+# Config file lookup order: $LEAFPRESS_CONFIG > ./config.toml > $XDG_CONFIG_HOME/leafpress/config.toml
+# (~/.config/leafpress/config.toml). `init` always writes ./config.toml.
+
 # Everything below is optional (shown values are the defaults):
 # site_name = "My Blog"
 # content_dir = "content"
-# database = "site.db"
+# database = "site.db"   # relative paths resolve against the working directory
 # admin_readonly = false   # true = /admin is read-only (cannot create/edit/delete posts or pages); content syncs via git only

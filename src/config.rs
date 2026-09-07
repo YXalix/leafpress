@@ -1,4 +1,5 @@
 use std::net::SocketAddr;
+use std::path::PathBuf;
 
 use leptos::prelude::LeptosOptions;
 use serde::Deserialize;
@@ -27,8 +28,29 @@ impl Default for Config {
 }
 
 impl Config {
+    /// Lookup order: $LEAFPRESS_CONFIG > ./config.toml > $XDG_CONFIG_HOME/leafpress/config.toml
+    /// (~/.config/leafpress/config.toml). Falls back to ./config.toml when none exist, so
+    /// load() reports "not found" as before and init keeps writing to the current directory.
+    pub fn path() -> PathBuf {
+        if let Some(p) = std::env::var_os("LEAFPRESS_CONFIG") {
+            return PathBuf::from(p);
+        }
+        let local = PathBuf::from("config.toml");
+        if local.exists() {
+            return local;
+        }
+        Self::global_path().filter(|p| p.exists()).unwrap_or(local)
+    }
+
+    fn global_path() -> Option<PathBuf> {
+        let base = std::env::var_os("XDG_CONFIG_HOME")
+            .map(PathBuf::from)
+            .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))?;
+        Some(base.join("leafpress").join("config.toml"))
+    }
+
     pub fn load() -> Self {
-        match std::fs::read_to_string("config.toml") {
+        match std::fs::read_to_string(Self::path()) {
             Ok(s) => match toml::from_str(&s) {
                 Ok(c) => c,
                 Err(e) => {
@@ -37,7 +59,7 @@ impl Config {
                 }
             },
             Err(_) => {
-                eprintln!("[config] config.toml not found, using defaults");
+                eprintln!("[config] config.toml not found (searched $LEAFPRESS_CONFIG, ./config.toml, ~/.config/leafpress), using defaults");
                 Self::default()
             }
         }

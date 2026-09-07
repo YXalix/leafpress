@@ -68,6 +68,14 @@ ask SITE_ADDR   "Listen address" "0.0.0.0:3000"
 mkdir -p "$INSTALL_DIR/data"   # database dir (explicit location, see database in config.toml)
 install -m 755 "$tmp/leafpress" "$INSTALL_DIR/leafpress"
 
+# CLI on PATH: a wrapper that pins the config location, so `leafpress doctor/passwd/update`
+# works from any cwd. /usr/local/bin is in the default PATH (also sudo's secure_path) on
+# mainstream distros — no user PATH edits needed.
+mkdir -p /usr/local/bin
+printf '#!/bin/sh\nexec env LEAFPRESS_CONFIG="%s/config.toml" "%s/leafpress" "$@"\n' \
+  "$INSTALL_DIR" "$INSTALL_DIR" > /usr/local/bin/leafpress
+chmod 755 /usr/local/bin/leafpress
+
 # ---------- Config & content (if config.toml already exists, keep everything; pure upgrade) ----------
 if [ -f "$INSTALL_DIR/config.toml" ]; then
   echo ">> config.toml already exists; keeping config and content untouched"
@@ -170,4 +178,5 @@ echo "Visit:    http://<server-IP>:${SITE_ADDR##*:}  (admin at /admin)"
 echo "Config:   $INSTALL_DIR/config.toml"
 echo "Database: $INSTALL_DIR/data/site.db"
 echo "Content:  ${CONTENT_DIR_FINAL:-$INSTALL_DIR/content} (changes hot-reload, no restart needed)"
-echo "Update later: sudo $INSTALL_DIR/leafpress update"
+echo "CLI:      leafpress (wrapper at /usr/local/bin/leafpress, config pinned via LEAFPRESS_CONFIG)"
+echo "Update later: sudo leafpress update"

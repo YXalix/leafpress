@@ -19,13 +19,13 @@ cargo leptos watch
 
 Runs at http://127.0.0.1:3000 (admin at `/admin`).
 
-**config.toml** (gitignored; only `admin_password` is required):
+**config.toml** (gitignored; only `admin_password` is required). Lookup order: `$LEAFPRESS_CONFIG` → `./config.toml` → `~/.config/leafpress/config.toml` (`$XDG_CONFIG_HOME` respected); `init` always writes `./config.toml`:
 
 | Key | Default | Purpose |
 |---|---|---|
 | `site_name` | `"My Site"` | site title |
 | `content_dir` | `"content"` | where the markdown lives |
-| `database` | `"site.db"` | comments/likes database |
+| `database` | `"site.db"` | comments/likes database (relative paths resolve against the working directory) |
 | `admin_readonly` | `false` | `true` = /admin is read-only |
 
 The listen address is set by `[package.metadata.leptos] site-addr` in `Cargo.toml` (or the `LEPTOS_SITE_ADDR` env).
@@ -53,8 +53,10 @@ curl -fsSL https://raw.githubusercontent.com/YXalix/leafpress/main/deploy/instal
 Upgrade:
 
 ```bash
-sudo /opt/leafpress/leafpress update
+sudo leafpress update
 ```
+
+The installer drops a `leafpress` wrapper into `/usr/local/bin` (already on PATH — no PATH edits needed); it pins `LEAFPRESS_CONFIG=/opt/leafpress/config.toml` so the CLI works from any directory.
 
 All state lives in explicit locations and survives reinstalls:
 
@@ -64,7 +66,7 @@ All state lives in explicit locations and survives reinstalls:
 | database | `/opt/leafpress/data/site.db` |
 | content | the directory chosen at install time (e.g. `/srv/leafpress-content`) |
 
-Run `sudo /opt/leafpress/leafpress doctor` afterwards to verify.
+Run `sudo leafpress doctor` afterwards to verify.
 
 ## Content
 
