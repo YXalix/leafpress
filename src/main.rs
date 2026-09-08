@@ -118,10 +118,12 @@ async fn serve() -> anyhow::Result<()> {
     let index = leafpress::content::SharedIndex::default();
     *index.write() = leafpress::content::scan(&content_dir)?;
     leafpress::content::spawn_watcher(content_dir.clone(), index.clone());
+    let git_last_error = Arc::new(std::sync::RwLock::new(None));
     leafpress::content::spawn_git_sync(
         content_dir,
         config.content_pull_interval_secs,
         config.git_proxy.clone(),
+        git_last_error.clone(),
     );
 
     let state = AppState {
@@ -129,6 +131,7 @@ async fn serve() -> anyhow::Result<()> {
         pool,
         index,
         config,
+        git_last_error,
     };
     let routes = generate_route_list(App);
 

@@ -406,6 +406,77 @@ async fn check_content(r: &mut Report, cfg: &Config) {
     } else {
         r.info("built-in git pull disabled (content_pull_interval_secs = 0)");
     }
+    check_ssh_remote(r, &dir);
+}
+
+/// Extracts (host, port) from SSH git URLs: git@host:path or ssh://[user@]host[:port]/path
+fn ssh_remote_host(url: &str) -> Option<(String, Option<u16>)> {
+    if let Some(rest) = url.strip_prefix("git@") {
+        let host = rest.split(':').next().unwrap_or("");
+        return (!host.is_empty()).then(|| (host.to_string(), None));
+    }
+    let rest = url.strip_prefix("ssh://")?;
+    let hostport = rest.rsplit('@').next()?.split('/').next()?;
+    let (host, port) = match hostport.split_once(':') {
+        Some((h, p)) => (h, p.parse().ok()),
+        None => (hostport, None),
+    };
+    (!host.is_empty()).then(|| (host.to_string(), port))
+}
+
+/// SSH remotes fail with "Host key verification failed" unless the service user's HOME has
+/// the host key and an auth key. Under the standard install the config file's directory IS
+/// the leafpress user's HOME, so check <config-dir>/.ssh. Skipped for a relative
+/// ./config.toml (local dev: git uses the real user's ~/.ssh).
+fn check_ssh_remote(r: &mut Report, repo: &Path) {
+    let Ok(url) = run_git(repo, &["remote", "get-url", "origin"]) else {
+        return;
+    };
+    let Some((host, port)) = ssh_remote_host(&url) else {
+        return;
+    };
+    let config_path = Config::path();
+    let Some(config_dir) = config_path.parent().filter(|p| !p.as_os_str().is_empty()) else {
+        return;
+    };
+    let ssh_dir = config_dir.join(".ssh");
+    let kh_host = match port {
+        Some(p) => format!("[{host}]:{p}"),
+        None => host.clone(),
+    };
+    let fix = format!(
+        "re-run deploy/install.sh (it seeds the leafpress user's SSH), or copy the host key / a key pair into {} owned by leafpress",
+        ssh_dir.display()
+    );
+    let known_hosts = ssh_dir.join("known_hosts");
+    let host_ok = Command::new("ssh-keygen")
+        .args(["-F", &kh_host, "-f"])
+        .arg(&known_hosts)
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+    if host_ok {
+        r.ok(format!(
+            "SSH remote: {kh_host} trusted in {}",
+            known_hosts.display()
+        ));
+    } else {
+        r.warn(format!(
+            "SSH remote: {kh_host} not in {} → git pull/push fails with \"Host key verification failed\"; {fix}",
+            known_hosts.display()
+        ));
+    }
+    if ["id_ed25519", "id_rsa"].iter().any(|k| ssh_dir.join(k).is_file()) {
+        r.ok(format!(
+            "SSH remote: private key present in {}",
+            ssh_dir.display()
+        ));
+    } else {
+        r.warn(format!(
+            "SSH remote: no private key (id_ed25519/id_rsa) in {} → git pull/push cannot authenticate; {fix}",
+            ssh_dir.display()
+        ));
+    }
 }
 
 async fn check_database(r: &mut Report, cfg: &Config) {

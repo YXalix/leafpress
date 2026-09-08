@@ -176,6 +176,85 @@ id -u leafpress >/dev/null 2>&1 || useradd --system --home "$INSTALL_DIR" --shel
 chown -R leafpress:leafpress "$INSTALL_DIR"
 [ -n "${CONTENT_DIR_FINAL:-}" ] && [ -d "$CONTENT_DIR_FINAL" ] && chown -R leafpress:leafpress "$CONTENT_DIR_FINAL"
 
+# ---------- SSH for the service user (only when the content remote is git-over-SSH) ----------
+# The service runs as leafpress with HOME=$INSTALL_DIR; without $INSTALL_DIR/.ssh every
+# git fetch/pull fails with "Host key verification failed". Best-effort: never aborts install.
+seed_ssh() {
+  [ -n "${CONTENT_DIR_FINAL:-}" ] && [ -d "$CONTENT_DIR_FINAL/.git" ] || return 0
+  local url
+  url=$(git -C "$CONTENT_DIR_FINAL" remote get-url origin 2>/dev/null) || return 0
+  [ -n "$url" ] || return 0
+  local host="" port=""
+  case "$url" in
+    git@*:*)
+      host="${url#git@}"; host="${host%%:*}" ;;
+    ssh://*)
+      host="${url#ssh://}"; host="${host#*@}"; host="${host%%/*}"
+      case "$host" in *:*) port="${host##*:}"; host="${host%%:*}" ;; esac ;;
+    *) return 0 ;; # https/local remote: no SSH setup needed
+  esac
+  [ -n "$host" ] || return 0
+  echo ">> Content remote is SSH ($host) — seeding $INSTALL_DIR/.ssh for the leafpress user"
+  install -d -m 700 -o leafpress -g leafpress "$INSTALL_DIR/.ssh"
+
+  # known_hosts: prefer keys root already trusts; only if that file lacks the host (idempotent)
+  local kh="$INSTALL_DIR/.ssh/known_hosts" kh_host="$host"
+  [ -n "$port" ] && kh_host="[$host]:$port"
+  local root_home
+  root_home=$(getent passwd root | cut -d: -f6); root_home="${root_home:-/root}"
+  if ssh-keygen -F "$kh_host" -f "$kh" >/dev/null 2>&1; then
+    echo ">> $kh_host already in $kh"
+  else
+    local src copied=""
+    for src in "$root_home/.ssh/known_hosts" /etc/ssh/ssh_known_hosts; do
+      if [ -f "$src" ] && ssh-keygen -F "$kh_host" -f "$src" >/dev/null 2>&1; then
+        ssh-keygen -F "$kh_host" -f "$src" | grep -v '^#' >> "$kh"
+        echo ">> Copied $kh_host host key from $src"
+        copied=1
+        break
+      fi
+    done
+    if [ -z "$copied" ]; then
+      echo "!! $kh_host is not in root's known_hosts — scanning it now (trust-on-first-use)"
+      local scan=() scan_out=""
+      [ -n "$port" ] && scan=(-p "$port")
+      if scan_out=$(ssh-keyscan "${scan[@]}" "$host" 2>/dev/null) && [ -n "$scan_out" ]; then
+        printf '%s\n' "$scan_out" >> "$kh"
+        echo "!! Verify this fingerprint against your git host's published fingerprint:"
+        printf '%s\n' "$scan_out" | ssh-keygen -lf - | sed 's/^/!!   /'
+      else
+        echo "!! ssh-keyscan $host failed — add the host key manually: ssh-keyscan $host >> $kh"
+      fi
+    fi
+  fi
+
+  # Auth key: keep an existing one, else reuse root's key pair, else generate a deploy key
+  if [ -f "$INSTALL_DIR/.ssh/id_ed25519" ] || [ -f "$INSTALL_DIR/.ssh/id_rsa" ]; then
+    echo ">> $INSTALL_DIR/.ssh already has a private key, leaving it as-is"
+  elif [ -f "$root_home/.ssh/id_ed25519" ] && [ -f "$root_home/.ssh/id_ed25519.pub" ]; then
+    cp "$root_home/.ssh/id_ed25519" "$root_home/.ssh/id_ed25519.pub" "$INSTALL_DIR/.ssh/"
+    echo ">> Copied root's id_ed25519 key pair (same git access as root)"
+  elif [ -f "$root_home/.ssh/id_rsa" ] && [ -f "$root_home/.ssh/id_rsa.pub" ]; then
+    cp "$root_home/.ssh/id_rsa" "$root_home/.ssh/id_rsa.pub" "$INSTALL_DIR/.ssh/"
+    echo ">> Copied root's id_rsa key pair (same git access as root)"
+  else
+    ssh-keygen -t ed25519 -N '' -q -f "$INSTALL_DIR/.ssh/id_ed25519"
+    echo "!! Generated a new SSH key for the leafpress user. Add this public key as a deploy key"
+    echo "!! (WITH WRITE ACCESS) on your git host, otherwise pull/push will fail:"
+    sed 's/^/!!   /' "$INSTALL_DIR/.ssh/id_ed25519.pub"
+  fi
+  chown -R leafpress:leafpress "$INSTALL_DIR/.ssh"
+  chmod 700 "$INSTALL_DIR/.ssh"
+  local f
+  for f in "$INSTALL_DIR/.ssh/id_ed25519" "$INSTALL_DIR/.ssh/id_rsa"; do
+    [ ! -f "$f" ] || chmod 600 "$f"
+  done
+  for f in "$INSTALL_DIR/.ssh/id_ed25519.pub" "$INSTALL_DIR/.ssh/id_rsa.pub" "$kh"; do
+    [ ! -f "$f" ] || chmod 644 "$f"
+  done
+}
+seed_ssh || echo "!! SSH setup for the leafpress user failed (non-fatal) — git sync over SSH may not work"
+
 # ---------- systemd (generated from the actual install dir) ----------
 if command -v systemctl >/dev/null && [ -d /run/systemd/system ]; then
   cat > "/etc/systemd/system/$SERVICE.service" <<EOF

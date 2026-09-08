@@ -12,4 +12,5 @@ pub struct AppState {
     pub pool: sqlx::SqlitePool,
     pub index: SharedIndex,
     pub config: Arc<Config>,
+    pub git_last_error: Arc<std::sync::RwLock<Option<String>>>,
 }

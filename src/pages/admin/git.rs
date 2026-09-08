@@ -527,6 +527,7 @@ pub fn AdminGit() -> impl IntoView {
                                         <span class="muted git-panel-tail">{sync_text}</span>
                                         {st.proxy.clone().map(|p| view! { <span class="badge badge-published">{format!("代理 {p}")}</span> })}
                                     </div>
+                                    {st.last_error.clone().map(|err| view! { <pre class="git-log error">{format!("最近同步失败：{err}")}</pre> })}
                                     <div class="git-panel-actions">
                                         <button
                                             class="button-secondary"

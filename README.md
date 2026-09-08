@@ -59,6 +59,8 @@ Upgrade:
 sudo leafpress update
 ```
 
+For SSH content remotes (`git@host:…`), the installer also seeds SSH for the `leafpress` service user (its `$HOME` is the install dir): the host key is copied from root's `known_hosts` (or scanned, printing the fingerprint to verify against your git host's published one), and root's key pair is reused when present — otherwise a new key is generated and printed; add it as a deploy key **with write access** on your git host, or pull/push will fail.
+
 The installer drops a `leafpress` wrapper into `/usr/local/bin` (already on PATH — no PATH edits needed); it pins `LEAFPRESS_CONFIG=/opt/leafpress/config.toml` so the CLI works from any directory.
 
 All state lives in explicit locations and survives reinstalls:
@@ -92,7 +94,7 @@ Body in GFM: tables, task lists, code blocks all work; `$...$` / `$$...$$` math 
 - `posts/**/*.md` → `/posts/<slug>`, `pages/**/*.md` → `/pages/<slug>`, `images/foo.png` → `/images/foo.png`
 - Subdirectories are for organization only — URLs stay flat, slugs are globally unique; `category` defaults to the folder name
 
-**Server auto-sync**: at install time choose "clone git repo" as the content source. The server fast-forwards the content dir itself every `content_pull_interval_secs` (default 300, `0` disables) and hot-reloads — no cron job needed.
+**Server auto-sync**: at install time choose "clone git repo" as the content source. The server fast-forwards the content dir itself every `content_pull_interval_secs` (default 300, `0` disables) and hot-reloads — no cron job needed. If a sync fails (host key verification, unreachable remote, …), the timestamped error is surfaced in the /admin console instead of only landing in the service log.
 
 **/admin git console**: /admin is git-only — branch/ahead/behind status (remote refs refreshed in the background, so a dead network never stalls page load), a manual **pull** button (applies immediately, no waiting for the periodic sync), per-file **stage/unstage** plus one-click **stage all**, and **commit+push** of the staged set (message optional, auto-generated when empty). The dual-pane (side-by-side) diff viewer shows the working tree vs HEAD — untracked files included — and the working-tree copy can be fixed right there: click a line for inline single-line editing, or open the full-file editor. For push to work, the server's content remote needs write credentials (a read/write token in the URL, `https://<token>@github.com/you/content.git`, or a deploy key with write access).
 

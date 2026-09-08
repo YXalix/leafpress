@@ -76,6 +76,23 @@ fn run_git_net(
     run_git(dir, &full).map_err(|e| with_net_hint(e, proxy.is_some()))
 }
 
+/// Records a git network op's outcome into the shared slot surfaced in /admin: failures are
+/// stored with a timestamp, success clears the previous error. Returns the result unchanged.
+#[cfg(feature = "ssr")]
+fn track_sync<T>(
+    slot: &std::sync::RwLock<Option<String>>,
+    result: Result<T, ServerFnError>,
+) -> Result<T, ServerFnError> {
+    *slot.write().unwrap() = match &result {
+        Ok(_) => None,
+        Err(e) => Some(format!(
+            "{} {e}",
+            chrono::Local::now().format("%Y-%m-%d %H:%M")
+        )),
+    };
+    result
+}
+
 #[cfg(feature = "ssr")]
 fn git_repo(state: &AppState) -> Result<std::path::PathBuf, ServerFnError> {
     let dir = std::path::PathBuf::from(&state.config.content_dir);
@@ -351,8 +368,12 @@ pub async fn admin_git_status() -> Result<GitStatus, ServerFnError> {
     // (the periodic auto-pull keeps refs fresh anyway; the fetch result shows on next load)
     let bg_dir = dir.clone();
     let bg_proxy = proxy.clone();
+    let bg_slot = state.git_last_error.clone();
     tokio::task::spawn_blocking(move || {
-        let _ = run_git_net(&bg_dir, &["fetch", "--quiet"], bg_proxy.as_deref());
+        let _ = track_sync(
+            &bg_slot,
+            run_git_net(&bg_dir, &["fetch", "--quiet"], bg_proxy.as_deref()),
+        );
     });
     // First line of `git status -sb`: "## main...origin/main [ahead 1, behind 2]" (or "## No commits yet on main")
     // quotePath=false keeps non-ASCII paths readable in the dirty list
@@ -384,6 +405,7 @@ pub async fn admin_git_status() -> Result<GitStatus, ServerFnError> {
     } else {
         run_git(&dir, &["log", "-1", "--pretty=%h %s (%cr)"]).unwrap_or_default()
     };
+    let last_error = state.git_last_error.read().unwrap().clone();
     Ok(GitStatus {
         branch,
         ahead,
@@ -393,6 +415,7 @@ pub async fn admin_git_status() -> Result<GitStatus, ServerFnError> {
         last_commit,
         pull_interval_secs: state.config.content_pull_interval_secs,
         proxy,
+        last_error,
     })
 }
 
@@ -534,10 +557,13 @@ pub async fn admin_git_pull() -> Result<String, ServerFnError> {
     let state = expect_context::<AppState>();
     require_admin(&state).await?;
     let dir = git_repo(&state)?;
-    let out = run_git_net(
-        &dir,
-        &["pull", "--ff-only"],
-        state.config.git_proxy.as_deref(),
+    let out = track_sync(
+        &state.git_last_error,
+        run_git_net(
+            &dir,
+            &["pull", "--ff-only"],
+            state.config.git_proxy.as_deref(),
+        ),
     )?;
     // Apply immediately rather than waiting for the file watcher's debounce
     match crate::content::scan(&dir) {
@@ -587,20 +613,17 @@ pub async fn admin_git_commit_push(message: String) -> Result<String, ServerFnEr
         ],
     )? + "\n";
     let proxy = state.config.git_proxy.as_deref();
-    match run_git_net(&dir, &["push"], proxy) {
-        Ok(out) => log.push_str(&out),
+    let pushed = match run_git_net(&dir, &["push"], proxy) {
+        Ok(out) => Ok(out),
         // Fresh server clones often have no upstream configured; set it up once
         Err(e)
             if e.to_string().contains("no upstream branch")
                 || e.to_string().contains("set-upstream") =>
         {
-            log.push_str(&run_git_net(
-                &dir,
-                &["push", "-u", "origin", "HEAD"],
-                proxy,
-            )?);
+            run_git_net(&dir, &["push", "-u", "origin", "HEAD"], proxy)
         }
-        Err(e) => return Err(e),
-    }
+        Err(e) => Err(e),
+    };
+    log.push_str(&track_sync(&state.git_last_error, pushed)?);
     Ok(log)
 }

@@ -288,7 +288,13 @@ pub fn spawn_watcher(content_dir: PathBuf, index: SharedIndex) {
 
 /// Periodically fast-forward the content dir from its git remote; the watcher picks up any
 /// changes and hot-reloads. No-op when disabled or the content dir is not a git repo.
-pub fn spawn_git_sync(content_dir: PathBuf, interval_secs: u64, proxy: Option<String>) {
+/// The last pull failure (timestamped) is shared via `last_error` so /admin can show it.
+pub fn spawn_git_sync(
+    content_dir: PathBuf,
+    interval_secs: u64,
+    proxy: Option<String>,
+    last_error: Arc<std::sync::RwLock<Option<String>>>,
+) {
     if interval_secs == 0 || !content_dir.join(".git").exists() {
         return;
     }
@@ -299,13 +305,26 @@ pub fn spawn_git_sync(content_dir: PathBuf, interval_secs: u64, proxy: Option<St
         // (empty value also disables any http_proxy env inherited from the server process)
         cmd.arg("-c")
             .arg(format!("http.proxy={}", proxy.as_deref().unwrap_or("")));
-        match cmd.args(["pull", "--ff-only", "--quiet"]).output() {
-            Ok(o) if o.status.success() => {}
-            Ok(o) => eprintln!(
-                "[content] git pull failed: {}",
-                String::from_utf8_lossy(&o.stderr).trim()
-            ),
-            Err(e) => eprintln!("[content] failed to run git: {e}"),
-        }
+        let err = match cmd.args(["pull", "--ff-only", "--quiet"]).output() {
+            Ok(o) if o.status.success() => None,
+            Ok(o) => {
+                let msg = String::from_utf8_lossy(&o.stderr).trim().to_string();
+                eprintln!("[content] git pull failed: {msg}");
+                Some(msg)
+            }
+            Err(e) => {
+                eprintln!("[content] failed to run git: {e}");
+                Some(e.to_string())
+            }
+        };
+        *last_error.write().unwrap() = err.map(|msg| {
+            let first = msg
+                .lines()
+                .next()
+                .map(str::trim)
+                .filter(|l| !l.is_empty())
+                .unwrap_or("unknown error");
+            format!("{} {first}", chrono::Local::now().format("%Y-%m-%d %H:%M"))
+        });
     });
 }

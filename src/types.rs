@@ -105,6 +105,8 @@ pub struct GitStatus {
     pub pull_interval_secs: u64,
     /// Proxy applied to git network ops (config.git_proxy), display only
     pub proxy: Option<String>,
+    /// Most recent git network/sync error, if any, for display in the console
+    pub last_error: Option<String>,
 }
 
 /// One changed file in the working tree vs HEAD
