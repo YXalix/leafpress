@@ -1,30 +1,6 @@
-/* ---- Fonts: self-hosted Maple Mono CN v7.9, subset to latin + GB2312 (~7553 chars).
-     Unified latin+CJK design with exact 2:1 width; rare chars outside GB2312 fall
-     back to system CJK fonts. License: SIL OFL 1.1 (see assets/fonts/MapleMono-LICENSE.txt) ---- */
-@font-face {
-  font-family: "Maple Mono";
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-  src: url("/fonts/maple-mono-cn-regular.woff2") format("woff2");
-}
-@font-face {
-  font-family: "Maple Mono";
-  font-style: italic;
-  font-weight: 400;
-  font-display: swap;
-  /* latin-only subset; CJK italic is avoided by design (see blockquote/em rules) */
-  src: url("/fonts/maple-mono-cn-italic.woff2") format("woff2");
-}
-@font-face {
-  font-family: "Maple Mono";
-  font-style: normal;
-  font-weight: 700;
-  font-display: swap;
-  src: url("/fonts/maple-mono-cn-bold.woff2") format("woff2");
-}
-
+/* ---- Fonts: system stacks only, zero webfont downloads ---- */
 :root {
+  --font-mono: "SF Mono", ui-monospace, Menlo, Consolas, "Liberation Mono", monospace;
   --bg: #f7f5ef;
   --fg: #22262b;
   --muted: #6f6a5e;
@@ -63,11 +39,9 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--fg);
-  font-family: "Maple Mono", "PingFang SC", "Hiragino Sans GB", "Noto Sans CJK SC", "Source Han Sans SC", "Microsoft YaHei", "SF Mono", Menlo, monospace;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
   font-size: 15px;
   line-height: 1.8;
-  /* Ligature sequences (->, !=) belong in code, not prose */
-  font-variant-ligatures: none;
 }
 
 ::selection { background: color-mix(in srgb, var(--accent) 22%, transparent); }
@@ -274,9 +248,7 @@ h1, h2, h3, h4 { line-height: 1.45; font-weight: 700; }
   border-radius: 3px;
   padding: 1px 5px;
   font-size: 0.9em;
-  font-family: "Maple Mono", "SF Mono", Menlo, Consolas, monospace;
-  font-variant-ligatures: common-ligatures contextual;
-  font-feature-settings: "calt" 1;
+  font-family: var(--font-mono);
 }
 .markdown-body pre code { padding: 0; background: transparent; }
 .markdown-body blockquote {
@@ -284,8 +256,8 @@ h1, h2, h3, h4 { line-height: 1.45; font-weight: 700; }
   padding: 2px 18px;
   border-left: 2px solid var(--accent);
   color: var(--muted);
-  /* 引文用楷体(中文排版惯例);英文仍回落到 Maple Mono。不用 italic,避免中文被强制倾斜 */
-  font-family: "Maple Mono", "Kaiti SC", "STKaiti", "KaiTi", "Songti SC", serif;
+  /* 引文用楷体(中文排版惯例)。不用 italic,避免中文被强制倾斜 */
+  font-family: "Kaiti SC", "STKaiti", "KaiTi", "Songti SC", serif;
 }
 /* 中文不用斜体强调:em 还原为正体 */
 .markdown-body em { font-style: normal; }
@@ -466,7 +438,7 @@ button, .button {
   border-radius: 3px;
   padding: 10px 12px;
   margin-top: 10px;
-  font-family: "Maple Mono", "SF Mono", Menlo, Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 0.8rem;
   max-height: 320px;
   overflow: auto;
@@ -488,11 +460,11 @@ button, .button {
 .diff-file-head::before { content: "▸"; color: var(--muted); font-size: 0.75rem; }
 .diff-file[open] > .diff-file-head::before { content: "▾"; }
 .diff-file-head:hover { background: color-mix(in srgb, var(--fg) 4%, transparent); }
-.diff-path { font-family: "Maple Mono", "SF Mono", Menlo, Consolas, monospace; font-size: 0.8rem; word-break: break-all; }
+.diff-path { font-family: var(--font-mono); font-size: 0.8rem; word-break: break-all; }
 .diff-stat {
   margin-left: auto; flex-shrink: 0;
   display: flex; gap: 8px;
-  font-family: "Maple Mono", "SF Mono", Menlo, Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 0.78rem; white-space: nowrap;
 }
 .stat-add { color: #1a7f37; }
@@ -511,7 +483,7 @@ button, .button {
 .diff-rows {
   display: grid; grid-template-columns: 1fr 1fr;
   min-width: 100%;
-  font-family: "Maple Mono", "SF Mono", Menlo, Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 0.8rem; line-height: 1.5;
   padding: 4px 0 6px;
 }
@@ -553,7 +525,7 @@ button, .button {
 .diff-edit-area {
   width: 100%;
   min-height: 45vh;
-  font-family: "Maple Mono", "SF Mono", Menlo, Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 0.85rem;
   line-height: 1.55;
   tab-size: 2;

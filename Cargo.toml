@@ -73,8 +73,9 @@ site-addr = "127.0.0.1:3000"
 reload-port = 3001
 
 [profile.release]
-# size-focused settings shrink the hydration wasm (~5.2MB -> ~2.5MB); the SSR
-# server shares this profile but the runtime cost of "z" is negligible here
+# size-focused settings shrink the hydration wasm (wasm-opt -Oz then applies on top,
+# ~1.1MB total); the SSR server shares this profile but the runtime cost of "z" is
+# negligible here
 lto = true
 codegen-units = 1
 opt-level = "z"
