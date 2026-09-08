@@ -263,6 +263,9 @@ h1, h2, h3, h4 { line-height: 1.45; font-weight: 700; }
 .markdown-body em { font-style: normal; }
 /* Booktabs-style tables: horizontal rules only */
 .markdown-body table {
+  /* display:block + overflow-x 让过宽的表格在容器内横向滚动,而不是撑破页面 */
+  display: block;
+  overflow-x: auto;
   border-collapse: collapse;
   width: 100%;
   border-top: 2px solid var(--fg);
