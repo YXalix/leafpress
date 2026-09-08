@@ -119,6 +119,8 @@ fn FileDiffView(
         rows,
         truncated,
     } = file;
+    // Collapsed by default — with many changed files, expanding every diff is unreadable
+    let open = RwSignal::new(false);
     let editing = RwSignal::new(false);
     let busy = RwSignal::new(false);
     let draft = RwSignal::new(String::new());
@@ -181,6 +183,7 @@ fn FileDiffView(
                     Ok(content) => {
                         draft.set(content);
                         editing.set(true);
+                        open.set(true);
                     }
                     Err(e) => feedback.set(Some((true, e.to_string()))),
                 }
@@ -286,7 +289,7 @@ fn FileDiffView(
     };
 
     view! {
-        <details class="diff-file" open>
+        <details class="diff-file" open=move || open.get()>
             <summary class="diff-file-head">
                 <span class=chip_class>{chip_label}</span>
                 {staged.then(|| view! { <span class="badge badge-staged">"已暂存"</span> })}
