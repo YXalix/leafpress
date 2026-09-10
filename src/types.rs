@@ -91,6 +91,11 @@ pub struct SearchResult {
 /// Content-repo git state shown in the admin panel
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct GitStatus {
+    /// false when content_dir is not a git repo — the panel then shows a setup guide
+    /// instead of the console; all other fields are meaningless in that case
+    pub repo: bool,
+    /// Server's content_dir, so the not-a-repo guide can show the real path
+    pub content_dir: String,
     /// e.g. "main...origin/main"
     pub branch: String,
     pub ahead: u32,

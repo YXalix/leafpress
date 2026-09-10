@@ -442,6 +442,33 @@ fn FileDiffView(
     }
 }
 
+/// Setup guide shown in place of the console when content_dir is not a git repo yet:
+/// points the admin at creating a private repo for durable, syncable content management
+#[component]
+fn RepoSetupGuide(content_dir: String) -> impl IntoView {
+    view! {
+        <div class="git-panel">
+            <p>"内容目录还不是 git 仓库，Git 同步功能未启用。站点会正常展示目录中的内容，但改动无法在这里追踪、提交或推送。"</p>
+            <p class="muted">
+                "建议把内容纳入一个私有仓库做持久化管理：改动有历史、可回滚，也能通过本页与远程仓库双向同步。步骤："
+            </p>
+            <ol class="muted">
+                <li>"在 GitHub 等平台新建一个 private 仓库（保持空白，不要初始化 README）。"</li>
+                <li>
+                    "在服务器上把内容目录纳入该仓库："
+                    <pre class="git-log">{format!(
+                        "cd {content_dir}\ngit init -b main\ngit add -A && git commit -m \"init content\"\ngit remote add origin <私有仓库地址>\ngit push -u origin main"
+                    )}</pre>
+                </li>
+                <li>"（可选）远程仓库需要代理时，在 config.toml 设置 git_proxy。"</li>
+                <li>
+                    "刷新本页即可使用拉取 / 暂存 / 提交 / 推送；定时自动拉取（content_pull_interval_secs）在服务启动时判定，需重启一次后生效。"
+                </li>
+            </ol>
+        </div>
+    }
+}
+
 #[component]
 pub fn AdminGit() -> impl IntoView {
     let refresh = RwSignal::new(0u32);
@@ -509,6 +536,10 @@ pub fn AdminGit() -> impl IntoView {
                 {move || {
                     status.get().map(|res| match res {
                         Err(e) => login_prompt(e).into_any(),
+                        Ok(st) if !st.repo => {
+                            view! { <RepoSetupGuide content_dir=st.content_dir.clone()/> }
+                                .into_any()
+                        }
                         Ok(st) => {
                             let dirty_count = st.dirty.len();
                             let staged_count = st.staged as usize;
@@ -564,30 +595,41 @@ pub fn AdminGit() -> impl IntoView {
                                         })
                                     }}
                                 </div>
+                                // Diff section lives inside this branch: it only renders for a
+                                // real repo (never under the setup guide), and the resource read
+                                // stays inside <Suspense/>
+                                <Suspense fallback=|| view! { <p class="muted">"Diff 加载中…"</p> }>
+                                    {move || {
+                                        diffs.get().map(|res| match res {
+                                            Err(e) => {
+                                                view! { <p class="muted">"Diff：" {e.to_string()}</p> }
+                                                    .into_any()
+                                            }
+                                            Ok(files) => {
+                                                if files.is_empty() {
+                                                    view! {
+                                                        <p class="muted">"工作区干净，没有未提交的改动。"</p>
+                                                    }
+                                                        .into_any()
+                                                } else {
+                                                    view! {
+                                                        <div class="diff-list">
+                                                            {files
+                                                                .into_iter()
+                                                                .map(|f| {
+                                                                    view! { <FileDiffView file=f refresh=refresh feedback=feedback/> }
+                                                                })
+                                                                .collect_view()}
+                                                        </div>
+                                                    }
+                                                        .into_any()
+                                                }
+                                            }
+                                        })
+                                    }}
+                                </Suspense>
                             }
                                 .into_any()
-                        }
-                    })
-                }}
-            </Suspense>
-            <Suspense fallback=|| view! { <p class="muted">"Diff 加载中…"</p> }>
-                {move || {
-                    diffs.get().map(|res| match res {
-                        Err(e) => view! { <p class="muted">"Diff：" {e.to_string()}</p> }.into_any(),
-                        Ok(files) => {
-                            if files.is_empty() {
-                                view! { <p class="muted">"工作区干净，没有未提交的改动。"</p> }.into_any()
-                            } else {
-                                view! {
-                                    <div class="diff-list">
-                                        {files
-                                            .into_iter()
-                                            .map(|f| view! { <FileDiffView file=f refresh=refresh feedback=feedback/> })
-                                            .collect_view()}
-                                    </div>
-                                }
-                                    .into_any()
-                            }
                         }
                     })
                 }}

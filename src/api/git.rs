@@ -362,7 +362,24 @@ fn untracked_diff(dir: &std::path::Path, path: &str) -> FileDiff {
 pub async fn admin_git_status() -> Result<GitStatus, ServerFnError> {
     let state = expect_context::<AppState>();
     require_admin(&state).await?;
-    let dir = git_repo(&state)?;
+    let dir = std::path::PathBuf::from(&state.config.content_dir);
+    // Not a repo is a normal state (content works without git), not an error: report it via
+    // `repo: false` so the panel can show a setup guide instead of a login-looking error
+    if !dir.join(".git").exists() {
+        return Ok(GitStatus {
+            repo: false,
+            content_dir: state.config.content_dir.clone(),
+            branch: String::new(),
+            ahead: 0,
+            behind: 0,
+            dirty: Vec::new(),
+            staged: 0,
+            last_commit: String::new(),
+            pull_interval_secs: state.config.content_pull_interval_secs,
+            proxy: state.config.git_proxy.clone(),
+            last_error: None,
+        });
+    }
     let proxy = state.config.git_proxy.clone();
     // Refresh remote refs in the background: a dead proxy/network must never stall page load
     // (the periodic auto-pull keeps refs fresh anyway; the fetch result shows on next load)
@@ -407,6 +424,8 @@ pub async fn admin_git_status() -> Result<GitStatus, ServerFnError> {
     };
     let last_error = state.git_last_error.read().unwrap().clone();
     Ok(GitStatus {
+        repo: true,
+        content_dir: state.config.content_dir.clone(),
         branch,
         ahead,
         behind,
