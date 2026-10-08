@@ -48,7 +48,8 @@ pub fn FilesPage() -> impl IntoView {
                                             let view_href = format!("{}?view=1", href);
                                             view! {
                                                 <li class="files-item">
-                                                    <a class="files-name" href=href>{f.name.clone()}</a>
+                                                    // download attr: fetch in place, no navigation
+                                                    <a class="files-name" href=href download=f.name.clone()>{f.name.clone()}</a>
                                                     {f.is_text.then(|| {
                                                         view! {
                                                             <a
