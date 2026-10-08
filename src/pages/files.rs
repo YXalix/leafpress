@@ -28,7 +28,7 @@ pub fn FilesPage() -> impl IntoView {
     view! {
         <div class="files-page">
             <h1>"文件"</h1>
-            <p class="muted">"公开文件分发目录，点击文件名即可下载。"</p>
+            <p class="muted">"公开文件分发目录：点击文件名下载；文本文件可点「查看」在新标签页浏览和复制。"</p>
             <Suspense fallback=|| view! { <p class="muted">"文件列表加载中…"</p> }>
                 {move || {
                     files.get().map(|res| match res {
@@ -45,9 +45,22 @@ pub fn FilesPage() -> impl IntoView {
                                         .into_iter()
                                         .map(|f| {
                                             let href = format!("/f/{}", url_encode(&f.name));
+                                            let view_href = format!("{}?view=1", href);
                                             view! {
                                                 <li class="files-item">
                                                     <a class="files-name" href=href>{f.name.clone()}</a>
+                                                    {f.is_text.then(|| {
+                                                        view! {
+                                                            <a
+                                                                class="files-view"
+                                                                href=view_href
+                                                                target="_blank"
+                                                                rel="noopener"
+                                                            >
+                                                                "查看"
+                                                            </a>
+                                                        }
+                                                    })}
                                                     <span class="files-meta">{human_size(f.size)}</span>
                                                     <span class="files-meta">{f.modified.clone()}</span>
                                                 </li>

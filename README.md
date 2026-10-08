@@ -109,7 +109,7 @@ Body in GFM: tables, task lists, code blocks all work; `$...$` / `$$...$$` math 
 
 ## File sharing
 
-A public, password-free file drop, fully decoupled from the content repo — no git, no admin, no database. A flat folder (`files_dir`, default `files` next to `config.toml`) is listed at `/files` (newest first) and every file is downloadable at `/f/<name>`. Anyone with the link can download; treat everything in `files_dir` as world-readable.
+A public, password-free file drop, fully decoupled from the content repo — no git, no admin, no database. A flat folder (`files_dir`, default `files` next to `config.toml`) is listed at `/files` (newest first) and every file is downloadable at `/f/<name>`. Clicking a file name always downloads; text files also get a **查看** link on the listing (`/f/<name>?view=1`) that renders the content inline for copy-paste. Anyone with the link can download; treat everything in `files_dir` as world-readable.
 
 **Uploads** need a token so strangers can't write to your server. Set `files_upload_token` in config.toml and restart, then from any machine:
 

@@ -15,12 +15,19 @@ use crate::types::SharedFile;
 #[server]
 pub async fn list_shared_files() -> Result<Vec<SharedFile>, ServerFnError> {
     let state = expect_context::<AppState>();
-    Ok(read_shared_files(&state.config.files_dir))
+    let dir = std::path::PathBuf::from(&state.config.files_dir);
+    Ok(read_shared_files(&dir)
+        .into_iter()
+        .map(|mut f| {
+            f.is_text = sniff_is_text(&dir.join(&f.name));
+            f
+        })
+        .collect())
 }
 
 /// Top-level regular files of `dir`, newest first; missing dir = empty listing
 #[cfg(feature = "ssr")]
-fn read_shared_files(dir: &str) -> Vec<SharedFile> {
+fn read_shared_files(dir: &std::path::Path) -> Vec<SharedFile> {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return Vec::new();
     };
@@ -45,6 +52,7 @@ fn read_shared_files(dir: &str) -> Vec<SharedFile> {
                 name: entry.file_name().to_string_lossy().into_owned(),
                 size: meta.len(),
                 modified,
+                is_text: false,
             })
         })
         .collect();
@@ -107,12 +115,14 @@ fn sniff_is_text(path: &std::path::Path) -> bool {
     !buf[..n].contains(&0) && std::str::from_utf8(&buf[..n]).is_ok()
 }
 
-/// Shapes /f download responses by content:
-/// - text data serves inline as text/plain so browsers display it (copy-paste friendly) —
-///   explicit text/plain is required because Chrome/Firefox download octet-stream bodies;
-///   it also neutralizes uploaded .html/.svg (rendered as source, no stored XSS)
-/// - everything else gets `Content-Disposition: attachment` so links always download
-///   instead of rendering (Safari displays binary-ish bodies inline otherwise)
+/// Shapes /f responses so the two actions stay unambiguous:
+/// - plain link (click) → always `Content-Disposition: attachment`, i.e. download,
+///   regardless of content
+/// - `?view=1` → text data (NUL-free UTF-8 first 4 KiB) serves inline as text/plain so
+///   browsers display it for copy-paste; explicit text/plain is required because
+///   Chrome/Firefox download octet-stream bodies. It also neutralizes uploaded
+///   .html/.svg (rendered as source, no stored XSS). Binary files ignore `view`
+///   and download.
 #[cfg(feature = "ssr")]
 pub async fn file_disposition(
     State(state): State<AppState>,
@@ -122,6 +132,11 @@ pub async fn file_disposition(
     use axum::http::{header, HeaderValue, StatusCode};
 
     let is_get = matches!(req.method().as_str(), "GET" | "HEAD");
+    let wants_view = req
+        .uri()
+        .query()
+        .map(|q| q.split('&').any(|kv| kv == "view=1"))
+        .unwrap_or(false);
     let raw_name = req.uri().path().rsplit('/').next().unwrap_or_default().to_string();
     let mut resp = next.run(req).await;
     if !is_get || !matches!(resp.status(), StatusCode::OK | StatusCode::PARTIAL_CONTENT) {
@@ -131,13 +146,15 @@ pub async fn file_disposition(
     if !valid_shared_name(&name) {
         return resp;
     }
-    let path = std::path::PathBuf::from(&state.config.files_dir).join(&name);
-    if sniff_is_text(&path) {
+    if wants_view && sniff_is_text(&std::path::PathBuf::from(&state.config.files_dir).join(&name))
+    {
         resp.headers_mut().insert(
             header::CONTENT_TYPE,
             HeaderValue::from_static("text/plain; charset=utf-8"),
         );
-    } else if let Ok(value) = HeaderValue::from_str(&format!(
+        return resp;
+    }
+    if let Ok(value) = HeaderValue::from_str(&format!(
         "attachment; filename*=UTF-8''{}",
         crate::util::url_encode(&name)
     )) {
