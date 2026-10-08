@@ -161,7 +161,11 @@ async fn serve() -> anyhow::Result<()> {
                 axum::routing::get_service(tower_http::services::ServeDir::new(&files_dir))
                     .put(leafpress::api::upload_shared_file)
                     .delete(leafpress::api::delete_shared_file)
-                    .layer(axum::extract::DefaultBodyLimit::max(files_body_limit)),
+                    .layer(axum::extract::DefaultBodyLimit::max(files_body_limit))
+                    // distribution links always download, never render inline
+                    .layer(axum::middleware::from_fn(
+                        leafpress::api::enforce_download,
+                    )),
             ),
         )
         .leptos_routes_with_context(

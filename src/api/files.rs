@@ -64,6 +64,63 @@ fn valid_shared_name(name: &str) -> bool {
         && !name.contains(['/', '\\'])
 }
 
+/// Percent-decodes a raw URI path segment (invalid escapes pass through; lossy UTF-8)
+#[cfg(feature = "ssr")]
+fn pct_decode(s: &str) -> String {
+    let bytes = s.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        let hex = if bytes[i] == b'%' && i + 2 < bytes.len() {
+            std::str::from_utf8(&bytes[i + 1..i + 3])
+                .ok()
+                .and_then(|h| u8::from_str_radix(h, 16).ok())
+        } else {
+            None
+        };
+        match hex {
+            Some(b) => {
+                out.push(b);
+                i += 3;
+            }
+            None => {
+                out.push(bytes[i]);
+                i += 1;
+            }
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+/// Adds `Content-Disposition: attachment` to successful /f GET/HEAD responses: a
+/// distribution link must always download — Safari in particular renders text-like
+/// bodies (.patch/.log/…) inline even as application/octet-stream. Layered onto the
+/// /f route in main.rs; PUT/DELETE responses pass through untouched (method-checked).
+#[cfg(feature = "ssr")]
+pub async fn enforce_download(
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    use axum::http::{header, HeaderValue, StatusCode};
+
+    let is_download = matches!(req.method().as_str(), "GET" | "HEAD");
+    let raw_name = req.uri().path().rsplit('/').next().unwrap_or_default().to_string();
+    let mut resp = next.run(req).await;
+    if !is_download
+        || (resp.status() != StatusCode::OK && resp.status() != StatusCode::PARTIAL_CONTENT)
+    {
+        return resp;
+    }
+    let disposition = format!(
+        "attachment; filename*=UTF-8''{}",
+        crate::util::url_encode(&pct_decode(&raw_name))
+    );
+    if let Ok(value) = HeaderValue::from_str(&disposition) {
+        resp.headers_mut().insert(header::CONTENT_DISPOSITION, value);
+    }
+    resp
+}
+
 /// Token gate for the mutating /f handlers: config token unset → 403 (feature off),
 /// header mismatch → 401
 #[cfg(feature = "ssr")]
