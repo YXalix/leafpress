@@ -12,3 +12,11 @@ admin_password = "changeme"
 # git_proxy = "http://127.0.0.1:7890"   # proxy for git fetch/pull/push. Default unset = direct connection
                                         # (http_proxy env vars are explicitly ignored). Set when the remote
                                         # is unreachable without a proxy, e.g. GitHub behind a firewall
+
+# Public file sharing, fully decoupled from content_dir (no git, no admin, no database):
+# files_dir is listed at /files and every file is downloadable at /f/<name>.
+# files_dir = "files"                   # relative paths resolve against the config file's directory
+# files_upload_token = "long-random-string"   # unset = uploads/deletes disabled (downloads stay public):
+#   curl -T <file> -H "X-Upload-Token: <token>" https://<host>/f/<name>     # upload / overwrite
+#   curl -X DELETE -H "X-Upload-Token: <token>" https://<host>/f/<name>     # delete
+# files_max_mb = 200                    # PUT size cap in MB; 0 = unlimited

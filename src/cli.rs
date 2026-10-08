@@ -130,6 +130,14 @@ pub fn init(args: InitArgs) -> Result<()> {
     setup_content(&content_dir, &content_action)?;
     std::fs::create_dir_all(content_dir.join("images"))?;
 
+    // Default files_dir anchors next to the config file (Config::anchor_to_config_dir)
+    let files_dir = config_path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or(Path::new("."))
+        .join("files");
+    std::fs::create_dir_all(&files_dir)?;
+
     // Only write non-default entries to keep config.toml minimal
     let mut config =
         format!("site_name = \"{site_name}\"\nadmin_password = \"{admin_password}\"\n");
@@ -142,6 +150,7 @@ pub fn init(args: InitArgs) -> Result<()> {
     std::fs::write(&config_path, config)?;
     println!(">> Generated {}", config_path.display());
     println!(">> Content dir: {}", content_dir.display());
+    println!(">> Files dir: {} (listed at /files)", files_dir.display());
     println!();
     println!("Next steps:");
     println!("  leafpress serve     # Start the service");

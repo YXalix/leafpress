@@ -159,3 +159,12 @@ pub enum GitOp {
     Push,
     StageAll,
 }
+
+/// One entry of the public /files listing (files_dir contents, newest first)
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SharedFile {
+    pub name: String,
+    pub size: u64,
+    /// mtime formatted "YYYY-MM-DD HH:MM" (server-local), descending-sort friendly
+    pub modified: String,
+}

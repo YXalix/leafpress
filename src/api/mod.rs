@@ -1,12 +1,14 @@
-//! Server functions: public-facing reads in [public], comments/likes in [feedback], admin login in [admin], content-repo git operations in [git].
+//! Server functions: public-facing reads in [public], comments/likes in [feedback], admin login in [admin], content-repo git operations in [git], public file sharing in [files].
 
 mod admin;
 mod feedback;
+mod files;
 mod git;
 mod public;
 
 pub use admin::*;
 pub use feedback::*;
+pub use files::*;
 pub use git::*;
 pub use public::*;
 

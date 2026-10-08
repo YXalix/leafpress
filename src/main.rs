@@ -115,6 +115,18 @@ async fn serve() -> anyhow::Result<()> {
     let pool = leafpress::db::init(&config.database).await?;
     let content_dir = std::path::PathBuf::from(&config.content_dir);
     let images_dir = content_dir.join("images");
+    // Public file-sharing dir (decoupled from content); created up front so both the
+    // /f download service and PUT uploads always find it
+    let files_dir = std::path::PathBuf::from(&config.files_dir);
+    std::fs::create_dir_all(&files_dir)
+        .map_err(|e| anyhow::anyhow!("无法创建文件分发目录 {}: {e}", files_dir.display()))?;
+    // Upload size cap for PUT /f/<name> only (axum's default 2MB stays for everything else);
+    // computed before config is moved into AppState
+    let files_body_limit = if config.files_max_mb == 0 {
+        usize::MAX
+    } else {
+        usize::try_from(config.files_max_mb.saturating_mul(1024 * 1024)).unwrap_or(usize::MAX)
+    };
     let index = leafpress::content::SharedIndex::default();
     *index.write() = leafpress::content::scan(&content_dir)?;
     leafpress::content::spawn_watcher(content_dir.clone(), index.clone());
@@ -138,6 +150,20 @@ async fn serve() -> anyhow::Result<()> {
     let app = Router::new()
         // Map the content repo's images/ dir to /images/; markdown references it as ![alt](/images/xxx.png)
         .nest_service("/images", tower_http::services::ServeDir::new(images_dir))
+        // Public file sharing: GET (and HEAD) stream files_dir at /f/<name>; PUT uploads
+        // and DELETE removes are token-gated (src/api/files.rs). Downloads need no auth.
+        // Nested so ServeDir sees the path with the /f prefix stripped (a plain .route
+        // would hand it the full /f/<name> path and 404).
+        .nest(
+            "/f",
+            axum::Router::new().route(
+                "/{name}",
+                axum::routing::get_service(tower_http::services::ServeDir::new(&files_dir))
+                    .put(leafpress::api::upload_shared_file)
+                    .delete(leafpress::api::delete_shared_file)
+                    .layer(axum::extract::DefaultBodyLimit::max(files_body_limit)),
+            ),
+        )
         .leptos_routes_with_context(
             &state,
             routes,

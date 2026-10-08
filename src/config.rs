@@ -18,6 +18,14 @@ pub struct Config {
     /// Default None = direct connection (any http_proxy env inherited from the server
     /// process is explicitly disabled). Set when the remote is unreachable without a proxy.
     pub git_proxy: Option<String>,
+    /// Public file-sharing directory: listed at /files, downloadable at /f/<name>.
+    /// Fully decoupled from content_dir — no git, no admin, no database.
+    pub files_dir: String,
+    /// Upload/delete token for /f/<name> (PUT/DELETE with header `X-Upload-Token`).
+    /// None/empty = uploads and deletes disabled; downloads and the listing stay public.
+    pub files_upload_token: Option<String>,
+    /// Upload size cap in MB; 0 = unlimited. Applied to PUT /f/<name> only.
+    pub files_max_mb: u64,
 }
 
 impl Default for Config {
@@ -29,6 +37,9 @@ impl Default for Config {
             database: "site.db".into(),
             content_pull_interval_secs: 300,
             git_proxy: None,
+            files_dir: "files".into(),
+            files_upload_token: None,
+            files_max_mb: 200,
         }
     }
 }
@@ -83,7 +94,7 @@ impl Config {
         let Some(base) = config_path.parent().filter(|p| !p.as_os_str().is_empty()) else {
             return;
         };
-        for p in [&mut self.content_dir, &mut self.database] {
+        for p in [&mut self.content_dir, &mut self.database, &mut self.files_dir] {
             if !std::path::Path::new(p.as_str()).is_absolute() {
                 *p = base.join(p.as_str()).to_string_lossy().into_owned();
             }

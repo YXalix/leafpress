@@ -24,6 +24,7 @@ pub fn Layout(children: Children) -> impl IntoView {
                     <A href="/posts">"文章"</A>
                     <A href="/archive">"归档"</A>
                     <A href="/pages/resume">"简历"</A>
+                    <A href="/files">"文件"</A>
                     // With JS: open the search modal (⌘K); without JS: falls back to the /search page
                     <A
                         href="/search"

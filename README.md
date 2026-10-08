@@ -5,6 +5,7 @@ A full-stack Rust blog engine — **Leptos** (SSR + WASM hydration) + **Axum** +
 - Markdown as content — hot-reload on every change, no restart
 - `/admin` as a pure git console: status, auto pull, per-file staging, commit+push, dual-pane diff with inline editing
 - Comments / likes in a single SQLite file; light/dark theme toggle
+- Public file drop: a flat `files_dir` listed at `/files`, downloadable at `/f/<name>` — token-gated `curl -T` uploads, no auth to download
 - Content decoupled from the program: `content_dir` points at any directory (typically a separate private repo)
 
 ## Local development
@@ -26,8 +27,11 @@ Runs at http://127.0.0.1:3000 (admin at `/admin`).
 | `site_name` | `"My Blog"` | site title |
 | `content_dir` | `"content"` | where the markdown lives |
 | `database` | `"site.db"` | comments/likes database |
+| `files_dir` | `"files"` | public file-sharing folder (see [File sharing](#file-sharing)) |
+| `files_upload_token` | unset | enables PUT/DELETE on `/f/<name>` when set; downloads stay public |
+| `files_max_mb` | `200` | upload size cap in MB; `0` = unlimited |
 
-Relative `content_dir` / `database` paths resolve against the **config file's directory**, so the systemd service and the `leafpress` CLI see the same paths no matter where they run from (a relative `./config.toml` — the local dev case — keeps resolving against the working directory).
+Relative `content_dir` / `database` / `files_dir` paths resolve against the **config file's directory**, so the systemd service and the `leafpress` CLI see the same paths no matter where they run from (a relative `./config.toml` — the local dev case — keeps resolving against the working directory).
 | `content_pull_interval_secs` | `300` | built-in `git pull --ff-only` on the content dir; `0` disables |
 | `git_proxy` | unset (direct) | proxy for git fetch/pull/push, e.g. `"http://127.0.0.1:7890"` |
 
@@ -70,6 +74,7 @@ All state lives in explicit locations and survives reinstalls:
 | `config.toml` | `/opt/leafpress/config.toml` (written once, never overwritten) |
 | database | `/opt/leafpress/data/site.db` |
 | content | the directory chosen at install time (e.g. `/srv/leafpress-content`) |
+| shared files | `<config dir>/files` (or `files_dir`) |
 
 Run `sudo leafpress doctor` afterwards to verify.
 
@@ -101,6 +106,21 @@ Body in GFM: tables, task lists, code blocks all work; `$...$` / `$$...$$` math 
 **Proxy**: git network ops are direct by default (any `http_proxy` env inherited by the server process is explicitly ignored). If pull/push fails because the remote is unreachable without a proxy (e.g. GitHub behind a firewall), set `git_proxy = "http://127.0.0.1:7890"` in config.toml and restart — it applies to the periodic auto-pull, the status fetch, and the manual pull/push buttons. Network-looking failures also surface a hint in the console.
 
 **Writing flow**: all writing happens locally — write/edit → push → the server auto-pulls. Quick server-side fixes can be done in the /admin diff editor and pushed from there. If pulls start failing, content probably diverged — check `git -C <content-dir> status`.
+
+## File sharing
+
+A public, password-free file drop, fully decoupled from the content repo — no git, no admin, no database. A flat folder (`files_dir`, default `files` next to `config.toml`) is listed at `/files` (newest first) and every file is downloadable at `/f/<name>`. Anyone with the link can download; treat everything in `files_dir` as world-readable.
+
+**Uploads** need a token so strangers can't write to your server. Set `files_upload_token` in config.toml and restart, then from any machine:
+
+```bash
+# upload / overwrite; the response is the share link
+curl -T report.pdf -H "X-Upload-Token: <token>" https://your-host/f/report.pdf
+# delete
+curl -X DELETE -H "X-Upload-Token: <token>" https://your-host/f/report.pdf
+```
+
+Or skip HTTP entirely: `scp`/`rsync` straight into `files_dir` — the page lists the folder live, nothing to restart. `files_max_mb` (default 200, `0` = unlimited) caps uploads; behind nginx raise `client_max_body_size` to match, or big uploads will be cut off by the proxy first. The listing shows top-level files only; filenames must be single path components without a leading `.`.
 
 ## Adding a page
 

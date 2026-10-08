@@ -546,3 +546,17 @@ button, .button {
   padding: 20px 0;
   text-align: center;
 }
+
+/* ---- /files public file sharing ---- */
+.files-page { max-width: 720px; margin: 0 auto; }
+.files-list { list-style: none; padding: 0; margin: 16px 0 0; }
+.files-item {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+.files-item:first-child { border-top: 1px solid var(--border); }
+.files-name { flex: 1; min-width: 0; overflow-wrap: anywhere; font-family: var(--font-mono); font-size: 0.9rem; }
+.files-meta { font-size: 0.78rem; color: var(--muted); white-space: nowrap; }

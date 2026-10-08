@@ -1,5 +1,6 @@
 pub mod admin;
 pub mod archive;
+pub mod files;
 pub mod home;
 pub mod not_found;
 pub mod page_view;
