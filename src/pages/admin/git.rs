@@ -4,7 +4,7 @@
 use leptos::prelude::*;
 use leptos_router::hooks::use_navigate;
 
-use super::login_prompt;
+use super::{login_prompt, AdminFiles};
 use crate::api::{
     admin_git_commit_push, admin_git_diff, admin_git_pull, admin_git_read_file,
     admin_git_save_file, admin_git_stage, admin_git_stage_all, admin_git_status, admin_git_unstage,
@@ -527,12 +527,14 @@ pub fn AdminGit() -> impl IntoView {
     view! {
         <div class="admin-wide">
             <div class="admin-head">
-                <h1>"Git 同步"</h1>
+                <h1>"管理后台"</h1>
                 <div class="admin-actions">
                     <button class="button-secondary" on:click=on_logout>"退出登录"</button>
                 </div>
             </div>
-            <Suspense fallback=|| view! { <p class="muted">"Git 状态加载中…"</p> }>
+            <div class="admin-section">
+                <h2>"Git 同步"</h2>
+                <Suspense fallback=|| view! { <p class="muted">"Git 状态加载中…"</p> }>
                 {move || {
                     status.get().map(|res| match res {
                         Err(e) => login_prompt(e).into_any(),
@@ -633,7 +635,9 @@ pub fn AdminGit() -> impl IntoView {
                         }
                     })
                 }}
-            </Suspense>
+                </Suspense>
+            </div>
+            <AdminFiles/>
         </div>
     }
 }

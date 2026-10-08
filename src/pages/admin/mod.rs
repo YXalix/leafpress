@@ -1,9 +1,12 @@
-//! Admin pages: login (this module) and the git console ([git]).
+//! Admin pages: login (this module) and the management console ([git] for content
+//! sync, [files] for shared-file management).
 //! Content itself is managed purely through git: edit locally and push, or use the
 //! console's diff editor + commit/push for server-side fixes.
 
+mod files;
 mod git;
 
+pub use files::AdminFiles;
 pub use git::AdminGit;
 
 use leptos::prelude::*;

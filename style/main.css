@@ -418,13 +418,14 @@ button, .button {
 .button:hover { text-decoration: none; opacity: 0.9; }
 .button-secondary { background: transparent; color: var(--fg); border: 1px solid var(--border); }
 
-/* ---- Admin (git console) ---- */
+/* ---- Admin (management console: git sync + shared files) ---- */
 .admin-login { max-width: 360px; margin: 48px auto; }
 .admin-login form { display: flex; flex-direction: column; gap: 12px; }
 /* The git console is wider: widen the main column (falls back to default where unsupported) */
 .main:has(.admin-wide) { max-width: 1080px; }
 .admin-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
 .admin-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.admin-wide h2 { margin: 18px 0 6px; font-size: 1.15rem; }
 .badge { display: inline-block; padding: 0 10px; border-radius: 3px; font-size: 0.75rem; background: var(--code-bg); color: var(--muted); white-space: nowrap; }
 .badge-published { background: color-mix(in srgb, #16a34a 14%, transparent); color: #16a34a; }
 .badge-draft { background: color-mix(in srgb, #d97706 15%, transparent); color: #d97706; }
@@ -561,3 +562,6 @@ button, .button {
 .files-name { flex: 1; min-width: 0; overflow-wrap: anywhere; font-family: var(--font-mono); font-size: 0.9rem; }
 .files-meta { font-size: 0.78rem; color: var(--muted); white-space: nowrap; }
 .files-view { font-size: 0.78rem; color: var(--accent); white-space: nowrap; }
+/* admin panel's delete button: quiet by default, red text to signal destructiveness */
+.files-del { font-size: 0.78rem; padding: 2px 10px; color: #b91c1c; border-color: color-mix(in srgb, #b91c1c 30%, var(--border)); }
+[data-theme="dark"] .files-del { color: #f87171; border-color: color-mix(in srgb, #f87171 30%, var(--border)); }

@@ -316,3 +316,35 @@ pub async fn delete_shared_file(
         Err(_) => (StatusCode::NOT_FOUND, "文件不存在\n").into_response(),
     }
 }
+
+/// Admin-panel listing: same data as the public listing, but gated by the admin
+/// session so the /admin panel degrades to a login prompt instead of leaking nothing
+#[server]
+pub async fn admin_list_shared_files() -> Result<Vec<SharedFile>, ServerFnError> {
+    let state = expect_context::<AppState>();
+    super::require_admin(&state).await?;
+    let dir = std::path::PathBuf::from(&state.config.files_dir);
+    Ok(read_shared_files(&dir)
+        .into_iter()
+        .map(|mut f| {
+            f.is_text = sniff_is_text(&dir.join(&f.name));
+            f
+        })
+        .collect())
+}
+
+/// Admin-panel delete of one shared file: cookie session instead of the curl
+/// upload token, same filesystem effect as DELETE /f/<name>
+#[server]
+pub async fn admin_delete_shared_file(name: String) -> Result<(), ServerFnError> {
+    let state = expect_context::<AppState>();
+    super::require_admin(&state).await?;
+    if !valid_shared_name(&name) {
+        return Err(ServerFnError::new("文件名不合法"));
+    }
+    let path = std::path::PathBuf::from(&state.config.files_dir).join(&name);
+    match tokio::fs::remove_file(&path).await {
+        Ok(()) => Ok(()),
+        Err(_) => Err(ServerFnError::new("删除失败：文件不存在或无权限")),
+    }
+}

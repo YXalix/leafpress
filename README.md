@@ -3,7 +3,7 @@
 A full-stack Rust blog engine — **Leptos** (SSR + WASM hydration) + **Axum** + **SQLite**, shipped as a single self-updating binary. The server never compiles anything.
 
 - Markdown as content — hot-reload on every change, no restart
-- `/admin` as a pure git console: status, auto pull, per-file staging, commit+push, dual-pane diff with inline editing
+- `/admin` console: git sync (status, auto pull, per-file staging, commit+push, dual-pane diff with inline editing) plus shared-file management (list + delete)
 - Comments / likes in a single SQLite file; light/dark theme toggle
 - Public file drop: a flat `files_dir` listed at `/files`, downloadable at `/f/<name>` — token-gated `curl -T` uploads, no auth to download
 - Content decoupled from the program: `content_dir` points at any directory (typically a separate private repo)

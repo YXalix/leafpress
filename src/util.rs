@@ -10,6 +10,22 @@ pub fn search_terms(query: &str) -> Vec<String> {
     query.split_whitespace().map(|t| t.to_lowercase()).collect()
 }
 
+/// 856 B / 1.4 MB / 2.0 GB — binary units matching most file managers
+pub fn human_size(bytes: u64) -> String {
+    const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
+    let mut v = bytes as f64;
+    let mut i = 0;
+    while v >= 1024.0 && i < UNITS.len() - 1 {
+        v /= 1024.0;
+        i += 1;
+    }
+    if i == 0 {
+        format!("{bytes} B")
+    } else {
+        format!("{v:.1} {}", UNITS[i])
+    }
+}
+
 pub fn url_encode(s: &str) -> String {
     let mut out = String::new();
     for b in s.bytes() {

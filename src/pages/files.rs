@@ -4,23 +4,7 @@
 use leptos::prelude::*;
 
 use crate::api::list_shared_files;
-use crate::util::url_encode;
-
-/// 856 B / 1.4 MB / 2.0 GB — binary units matching most file managers
-fn human_size(bytes: u64) -> String {
-    const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
-    let mut v = bytes as f64;
-    let mut i = 0;
-    while v >= 1024.0 && i < UNITS.len() - 1 {
-        v /= 1024.0;
-        i += 1;
-    }
-    if i == 0 {
-        format!("{bytes} B")
-    } else {
-        format!("{v:.1} {}", UNITS[i])
-    }
-}
+use crate::util::{human_size, url_encode};
 
 #[component]
 pub fn FilesPage() -> impl IntoView {
