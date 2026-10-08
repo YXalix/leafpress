@@ -92,30 +92,55 @@ fn pct_decode(s: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
-/// Adds `Content-Disposition: attachment` to successful /f GET/HEAD responses: a
-/// distribution link must always download — Safari in particular renders text-like
-/// bodies (.patch/.log/…) inline even as application/octet-stream. Layered onto the
-/// /f route in main.rs; PUT/DELETE responses pass through untouched (method-checked).
+/// NUL-free valid UTF-8 in the first 4 KiB → treat as text (empty files count as text)
 #[cfg(feature = "ssr")]
-pub async fn enforce_download(
+fn sniff_is_text(path: &std::path::Path) -> bool {
+    use std::io::Read;
+    let Ok(mut file) = std::fs::File::open(path) else {
+        return false;
+    };
+    let mut buf = [0u8; 4096];
+    let n = match file.read(&mut buf) {
+        Ok(n) => n,
+        Err(_) => return false,
+    };
+    !buf[..n].contains(&0) && std::str::from_utf8(&buf[..n]).is_ok()
+}
+
+/// Shapes /f download responses by content:
+/// - text data serves inline as text/plain so browsers display it (copy-paste friendly) —
+///   explicit text/plain is required because Chrome/Firefox download octet-stream bodies;
+///   it also neutralizes uploaded .html/.svg (rendered as source, no stored XSS)
+/// - everything else gets `Content-Disposition: attachment` so links always download
+///   instead of rendering (Safari displays binary-ish bodies inline otherwise)
+#[cfg(feature = "ssr")]
+pub async fn file_disposition(
+    State(state): State<AppState>,
     req: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> axum::response::Response {
     use axum::http::{header, HeaderValue, StatusCode};
 
-    let is_download = matches!(req.method().as_str(), "GET" | "HEAD");
+    let is_get = matches!(req.method().as_str(), "GET" | "HEAD");
     let raw_name = req.uri().path().rsplit('/').next().unwrap_or_default().to_string();
     let mut resp = next.run(req).await;
-    if !is_download
-        || (resp.status() != StatusCode::OK && resp.status() != StatusCode::PARTIAL_CONTENT)
-    {
+    if !is_get || !matches!(resp.status(), StatusCode::OK | StatusCode::PARTIAL_CONTENT) {
         return resp;
     }
-    let disposition = format!(
+    let name = pct_decode(&raw_name);
+    if !valid_shared_name(&name) {
+        return resp;
+    }
+    let path = std::path::PathBuf::from(&state.config.files_dir).join(&name);
+    if sniff_is_text(&path) {
+        resp.headers_mut().insert(
+            header::CONTENT_TYPE,
+            HeaderValue::from_static("text/plain; charset=utf-8"),
+        );
+    } else if let Ok(value) = HeaderValue::from_str(&format!(
         "attachment; filename*=UTF-8''{}",
-        crate::util::url_encode(&pct_decode(&raw_name))
-    );
-    if let Ok(value) = HeaderValue::from_str(&disposition) {
+        crate::util::url_encode(&name)
+    )) {
         resp.headers_mut().insert(header::CONTENT_DISPOSITION, value);
     }
     resp

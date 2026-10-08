@@ -162,9 +162,10 @@ async fn serve() -> anyhow::Result<()> {
                     .put(leafpress::api::upload_shared_file)
                     .delete(leafpress::api::delete_shared_file)
                     .layer(axum::extract::DefaultBodyLimit::max(files_body_limit))
-                    // distribution links always download, never render inline
-                    .layer(axum::middleware::from_fn(
-                        leafpress::api::enforce_download,
+                    // text files display inline (copy-friendly), binaries force download
+                    .layer(axum::middleware::from_fn_with_state(
+                        state.clone(),
+                        leafpress::api::file_disposition,
                     )),
             ),
         )
