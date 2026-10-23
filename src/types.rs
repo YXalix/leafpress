@@ -160,13 +160,21 @@ pub enum GitOp {
     StageAll,
 }
 
-/// One entry of the public /files listing (files_dir contents, newest first)
+/// One entry of a /files listing: files_dir subdirectory browsing shares the same
+/// shape — directories come first (name asc), then files (newest first)
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SharedFile {
+    /// Display name: the last path component (basename), never contains "/"
     pub name: String,
+    /// Path relative to files_dir ("a/b.txt"); empty dir param lists the root, where
+    /// path == name. This is what /f/ hrefs and ?dir= links are built from
+    pub path: String,
+    pub is_dir: bool,
+    /// 0 for directories (the UI shows "—")
     pub size: u64,
     /// mtime formatted "YYYY-MM-DD HH:MM" (server-local), descending-sort friendly
     pub modified: String,
-    /// Sniffed content kind: text files get a 查看 link (?view=1 serves them inline)
+    /// Sniffed content kind (files only): text files get a 查看 link (?view=1 serves
+    /// them inline)
     pub is_text: bool,
 }

@@ -550,6 +550,10 @@ button, .button {
 
 /* ---- /files public file sharing ---- */
 .files-page { max-width: 720px; margin: 0 auto; }
+.files-crumb { margin-top: 16px; font-size: 0.85rem; color: var(--muted); }
+.files-crumb a { color: var(--accent); }
+.files-crumb-sep { margin: 0 6px; }
+.files-crumb-here { color: var(--fg); }
 .files-list { list-style: none; padding: 0; margin: 16px 0 0; }
 .files-item {
   display: flex;
@@ -560,6 +564,8 @@ button, .button {
 }
 .files-item:first-child { border-top: 1px solid var(--border); }
 .files-name { flex: 1; min-width: 0; overflow-wrap: anywhere; font-family: var(--font-mono); font-size: 0.9rem; }
+/* directories navigate (?dir=) instead of downloading; accent keeps them apart from files */
+.files-name.files-dir { color: var(--accent); }
 .files-meta { font-size: 0.78rem; color: var(--muted); white-space: nowrap; }
 .files-view { font-size: 0.78rem; color: var(--accent); white-space: nowrap; }
 /* admin panel's delete button: quiet by default, red text to signal destructiveness */

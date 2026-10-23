@@ -5,7 +5,7 @@ A full-stack Rust blog engine — **Leptos** (SSR + WASM hydration) + **Axum** +
 - Markdown as content — hot-reload on every change, no restart
 - `/admin` console: git sync (status, auto pull, per-file staging, commit+push, dual-pane diff with inline editing) plus shared-file management (list + delete)
 - Comments / likes in a single SQLite file; light/dark theme toggle
-- Public file drop: a flat `files_dir` listed at `/files`, downloadable at `/f/<name>` — token-gated `curl -T` uploads, no auth to download
+- Public file drop: a browsable `files_dir` (subdirectories included) listed at `/files`, downloadable at `/f/<rel path>` — token-gated `curl -T` uploads, no auth to download
 - Content decoupled from the program: `content_dir` points at any directory (typically a separate private repo)
 
 ## Local development
@@ -28,7 +28,7 @@ Runs at http://127.0.0.1:3000 (admin at `/admin`).
 | `content_dir` | `"content"` | where the markdown lives |
 | `database` | `"site.db"` | comments/likes database |
 | `files_dir` | `"files"` | public file-sharing folder (see [File sharing](#file-sharing)) |
-| `files_upload_token` | unset | enables PUT/DELETE on `/f/<name>` when set; downloads stay public |
+| `files_upload_token` | unset | enables PUT/DELETE on `/f/<rel path>` when set; downloads stay public |
 | `files_max_mb` | `200` | upload size cap in MB; `0` = unlimited |
 
 Relative `content_dir` / `database` / `files_dir` paths resolve against the **config file's directory**, so the systemd service and the `leafpress` CLI see the same paths no matter where they run from (a relative `./config.toml` — the local dev case — keeps resolving against the working directory).
@@ -109,18 +109,20 @@ Body in GFM: tables, task lists, code blocks all work; `$...$` / `$$...$$` math 
 
 ## File sharing
 
-A public, password-free file drop, fully decoupled from the content repo — no git, no admin, no database. A flat folder (`files_dir`, default `files` next to `config.toml`) is listed at `/files` (newest first) and every file is downloadable at `/f/<name>`. Clicking a file name always downloads; text files also get a **查看** link on the listing (`/f/<name>?view=1`) that renders the content inline for copy-paste. Anyone with the link can download; treat everything in `files_dir` as world-readable.
+A public, password-free file drop, fully decoupled from the content repo — no git, no admin, no database. A folder (`files_dir`, default `files` next to `config.toml`) is listed at `/files` (subdirectories first, files newest first) and every file is downloadable at `/f/<rel path>`. Subdirectories are browsable: `/files` shows them as folder rows (breadcrumbs on top), backed by `/files?dir=<rel path>` shareable URLs. Clicking a file name always downloads; text files also get a **查看** link on the listing (`/f/<rel path>?view=1`) that renders the content inline for copy-paste. Anyone with the link can download; treat everything in `files_dir` as world-readable.
 
 **Uploads** need a token so strangers can't write to your server. Set `files_upload_token` in config.toml and restart, then from any machine:
 
 ```bash
 # upload / overwrite; the response is the share link
 curl -T report.pdf -H "X-Upload-Token: <token>" https://your-host/f/report.pdf
-# delete
-curl -X DELETE -H "X-Upload-Token: <token>" https://your-host/f/report.pdf
+# upload into a subdirectory — parent dirs are created automatically
+curl -T report.pdf -H "X-Upload-Token: <token>" https://your-host/f/docs/report.pdf
+# delete (files only; directories are left alone)
+curl -X DELETE -H "X-Upload-Token: <token>" https://your-host/f/docs/report.pdf
 ```
 
-Or skip HTTP entirely: `scp`/`rsync` straight into `files_dir` — the page lists the folder live, nothing to restart. `files_max_mb` (default 200, `0` = unlimited) caps uploads; behind nginx raise `client_max_body_size` to match, or big uploads will be cut off by the proxy first. The listing shows top-level files only; filenames must be single path components without a leading `.`.
+Or skip HTTP entirely: `scp`/`rsync` straight into `files_dir` — the page lists the folder live, nothing to restart. `files_max_mb` (default 200, `0` = unlimited) caps uploads; behind nginx raise `client_max_body_size` to match, or big uploads will be cut off by the proxy first. Paths must stay under `files_dir`: components may not start with `.` (no hidden files, no `..` traversal), so uploads can never escape the folder.
 
 ## Adding a page
 

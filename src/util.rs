@@ -39,6 +39,12 @@ pub fn url_encode(s: &str) -> String {
     out
 }
 
+/// Like [url_encode] but keeps "/" intact: encodes each path segment separately, so
+/// nested /f/... links stay nested (single segments must use url_encode)
+pub fn url_encode_path(s: &str) -> String {
+    s.split('/').map(url_encode).collect::<Vec<_>>().join("/")
+}
+
 /// Wrap fragments of text matching terms in <mark> (case-insensitive; terms must be lowercased)
 pub fn highlight(text: &str, terms: &[String]) -> Vec<AnyView> {
     let lower = text.to_lowercase();

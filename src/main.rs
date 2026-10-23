@@ -150,14 +150,16 @@ async fn serve() -> anyhow::Result<()> {
     let app = Router::new()
         // Map the content repo's images/ dir to /images/; markdown references it as ![alt](/images/xxx.png)
         .nest_service("/images", tower_http::services::ServeDir::new(images_dir))
-        // Public file sharing: GET (and HEAD) stream files_dir at /f/<name>; PUT uploads
-        // and DELETE removes are token-gated (src/api/files.rs). Downloads need no auth.
+        // Public file sharing: GET (and HEAD) stream files_dir at /f/<rel path> —
+        // subdirectories included; PUT uploads (creating parent dirs as needed) and
+        // DELETE removes are token-gated (src/api/files.rs). Downloads need no auth.
         // Nested so ServeDir sees the path with the /f prefix stripped (a plain .route
-        // would hand it the full /f/<name> path and 404).
+        // would hand it the full /f/<name> path and 404); the {*path} wildcard carries
+        // the whole files_dir-relative path including "/" separators
         .nest(
             "/f",
             axum::Router::new().route(
-                "/{name}",
+                "/{*path}",
                 axum::routing::get_service(tower_http::services::ServeDir::new(&files_dir))
                     .put(leafpress::api::upload_shared_file)
                     .delete(leafpress::api::delete_shared_file)
