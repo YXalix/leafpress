@@ -133,29 +133,31 @@ fn sniff_is_text(path: &std::path::Path) -> bool {
     !buf[..n].contains(&0) && std::str::from_utf8(&buf[..n]).is_ok()
 }
 
-/// Patches above this size skip the colored HTML view and fall back to plain text —
-/// the HTML page is built in memory and unbounded otherwise
+/// Text files above this size skip the HTML preview and fall back to plain text —
+/// the preview page is built in memory and unbounded otherwise
 #[cfg(feature = "ssr")]
-const PATCH_VIEW_MAX_BYTES: u64 = 4 * 1024 * 1024;
+const TEXT_VIEW_MAX_BYTES: u64 = 4 * 1024 * 1024;
 
 /// Shapes /f responses so the two actions stay unambiguous:
 /// - plain link (click) → always `Content-Disposition: attachment`, i.e. download,
 ///   regardless of content
-/// - `?view=1` → text data (NUL-free UTF-8 first 4 KiB) serves inline as text/plain so
-///   browsers display it for copy-paste; explicit text/plain is required because
-///   Chrome/Firefox download octet-stream bodies. It also neutralizes uploaded
-///   .html/.svg (rendered as source, no stored XSS). Binary files ignore `view`
-///   and download. Patch/diff files instead get the colored HTML page
-///   ([patch_view_html]), answered directly without consulting ServeDir — a stale
+/// - `?view=1` → text data (NUL-free UTF-8 first 4 KiB) serves as a self-contained
+///   HTML preview page ([text_view_html]): header bar with one-click copy plus
+///   download/raw/listing links, patch/diff bodies line-highlighted, other text as a
+///   plain block. `&raw=1` opts out to inline text/plain; binary files ignore `view`
+///   and download. Explicit text/plain is required on the raw path because
+///   Chrome/Firefox download octet-stream bodies; it also neutralizes uploaded
+///   .html/.svg (rendered as source, no stored XSS — the preview page escapes too).
+///   The preview page is answered directly without consulting ServeDir — a stale
 ///   cached plain-text view then revalidates into fresh HTML instead of pinning a
-///   304. `&raw=1` opts back out to plain text.
+///   304.
 ///
-/// View responses: the patch HTML page is `Cache-Control: no-cache` (cache but
+/// View responses: the HTML preview page is `Cache-Control: no-cache` (cache but
 /// always revalidate) because its *format* evolves with deploys and a
 /// heuristically-fresh cached copy would pin the old one — the exact bug where
-/// pre-deploy views stayed plain text forever. The plain-text view keeps default
-/// caching instead: its format never changes, and ServeDir's Last-Modified already
-/// drives cheap conditional 304s.
+/// pre-deploy views stayed plain text forever. The plain-text fallbacks (raw=1,
+/// oversize files) keep default caching instead: their format never changes, and
+/// ServeDir's Last-Modified already drives cheap conditional 304s.
 ///
 /// Mounted inside the /f nest, so the URI path here has the /f prefix stripped and is
 /// the files_dir-relative path (percent-encoded); nested paths work the same as flat ones
@@ -185,7 +187,7 @@ pub async fn file_disposition(
         && sniff_is_text(&root.join(&rel))
     {
         if !wants_raw {
-            if let Some(html) = patch_view_html(&root, &rel) {
+            if let Some(html) = text_view_html(&root, &rel) {
                 let mut resp = axum::response::Html(html).into_response();
                 resp.headers_mut().insert(
                     header::CACHE_CONTROL,
@@ -225,25 +227,34 @@ pub async fn file_disposition(
     resp
 }
 
-/// Colored patch view for `?view=1`: reads the whole file (within
-/// [PATCH_VIEW_MAX_BYTES]) and returns the highlighted HTML page, or None to fall
-/// back to plain text. UTF-8 is decoded lossily — one stray byte degrades to U+FFFD
-/// in the view instead of dropping the whole file to plain text (the 4 KiB sniff has
-/// only sampled the head)
+/// HTML preview for `?view=1`: reads the whole file (within [TEXT_VIEW_MAX_BYTES])
+/// and returns the self-contained preview page, or None to fall back to plain text.
+/// UTF-8 is decoded lossily — one stray byte degrades to U+FFFD in the view instead
+/// of dropping the whole file to plain text (the 4 KiB sniff has only sampled the
+/// head). Patch/diff content is line-highlighted; other text renders as one plain
+/// block
 #[cfg(feature = "ssr")]
-fn patch_view_html(root: &std::path::Path, rel: &str) -> Option<String> {
+fn text_view_html(root: &std::path::Path, rel: &str) -> Option<String> {
     let path = root.join(rel);
     let meta = std::fs::metadata(&path).ok()?;
-    if meta.len() > PATCH_VIEW_MAX_BYTES {
+    if meta.len() > TEXT_VIEW_MAX_BYTES {
         return None;
     }
     let bytes = std::fs::read(&path).ok()?;
     let text = String::from_utf8_lossy(&bytes).into_owned();
     let name = rel.rsplit('/').next().unwrap_or(rel);
-    if !looks_like_patch(name, &text) {
-        return None;
-    }
-    Some(render_patch_html(name, &text, &crate::util::url_encode_path(rel)))
+    let body = if looks_like_patch(name, &text) {
+        patch_body(&text)
+    } else {
+        let mut body = String::with_capacity(text.len() + text.len() / 16);
+        html_escape_into(&mut body, &text);
+        body
+    };
+    Some(render_view_html(
+        name,
+        &body,
+        &crate::util::url_encode_path(rel),
+    ))
 }
 
 /// Patch detection: *.patch / *.diff extensions count outright; otherwise sniff the
@@ -324,10 +335,11 @@ fn html_escape_into(out: &mut String, s: &str) {
     }
 }
 
-/// Builds the page from [PATCH_VIEW_SHELL]. Replacements run body-last: file content
-/// is arbitrary, so no token inside it can be substituted
+/// Highlighted body for the patch preview: one span per line, LF-joined. The final
+/// LF is dropped when the file itself doesn't end in one, so the <pre> textContent
+/// the copy button reads reproduces the viewable text exactly
 #[cfg(feature = "ssr")]
-fn render_patch_html(name: &str, text: &str, download_href: &str) -> String {
+fn patch_body(text: &str) -> String {
     let mut body = String::with_capacity(text.len() + text.len() / 4);
     for line in text.lines() {
         body.push_str("<span class=\"");
@@ -336,23 +348,35 @@ fn render_patch_html(name: &str, text: &str, download_href: &str) -> String {
         html_escape_into(&mut body, line);
         body.push_str("</span>\n");
     }
+    if body.ends_with('\n') && !text.ends_with('\n') {
+        body.pop();
+    }
+    body
+}
+
+/// Builds the page from [TEXT_VIEW_SHELL]. Replacements run body-last: file content
+/// is arbitrary, so no token inside it can be substituted
+#[cfg(feature = "ssr")]
+fn render_view_html(name: &str, body: &str, download_href: &str) -> String {
     let mut title = String::new();
     html_escape_into(&mut title, name);
-    PATCH_VIEW_SHELL
+    TEXT_VIEW_SHELL
         .replace("@DOWNLOAD@", download_href)
         .replace(
             "@RAW@",
             &format!("{download_href}?view=1&raw=1"),
         )
         .replace("@TITLE@", &title)
-        .replace("@BODY@", &body)
+        .replace("@BODY@", body)
 }
 
-/// Standalone colored-diff page for the /f view: inline CSS only, no site assets, so
-/// /f stays decoupled from the Leptos app; follows light/dark via prefers-color-scheme.
+/// Standalone text-preview page for the /f view: inline CSS/JS only, no site assets,
+/// so /f stays decoupled from the Leptos app; follows light/dark via
+/// prefers-color-scheme. The copy button reads the <pre> textContent, which
+/// [text_view_html] keeps byte-faithful to the viewable text
 /// @DOWNLOAD@/@RAW@/@TITLE@/@BODY@ are replaced per request
 #[cfg(feature = "ssr")]
-const PATCH_VIEW_SHELL: &str = r#"<!doctype html>
+const TEXT_VIEW_SHELL: &str = r#"<!doctype html>
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
@@ -376,6 +400,12 @@ const PATCH_VIEW_SHELL: &str = r#"<!doctype html>
   header .sp { flex: 1; }
   header a { color: #0969da; text-decoration: none; white-space: nowrap; font-size: .85rem; }
   header a:hover { text-decoration: underline; }
+  header button {
+    border: 0; padding: 0; background: none; cursor: pointer;
+    font: inherit; font-size: .85rem; color: #0969da; white-space: nowrap;
+  }
+  header button:hover { text-decoration: underline; }
+  header button.ok { color: #1a7f37; }
   main { padding: 1rem; overflow-x: auto; }
   pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
   .d-add { color: #1a7f37; background: #e6ffec; }
@@ -387,6 +417,8 @@ const PATCH_VIEW_SHELL: &str = r#"<!doctype html>
     body { background: #0d1117; color: #e6edf3; }
     header { background: #161b22; border-bottom-color: #30363d; }
     header a { color: #4493f8; }
+    header button { color: #4493f8; }
+    header button.ok { color: #3fb950; }
     .d-add { color: #3fb950; background: #12261e; }
     .d-del { color: #f85149; background: #2d1517; }
     .d-hunk { color: #d2a8ff; }
@@ -398,11 +430,37 @@ const PATCH_VIEW_SHELL: &str = r#"<!doctype html>
 <header>
   <b>@TITLE@</b>
   <span class="sp"></span>
+  <button type="button" onclick="lpcopy(this)">复制</button>
   <a href="@DOWNLOAD@">下载</a>
   <a href="@RAW@">纯文本</a>
   <a href="/files">文件列表</a>
 </header>
 <main><pre>@BODY@</pre></main>
+<script>
+function lpcopyFallback(t, done) {
+  var a = document.createElement('textarea');
+  a.value = t;
+  a.style.position = 'fixed';
+  a.style.opacity = '0';
+  document.body.appendChild(a);
+  a.select();
+  try { if (document.execCommand('copy')) done(); } catch (e) {}
+  document.body.removeChild(a);
+}
+function lpcopy(b) {
+  var t = document.querySelector('main pre').textContent;
+  var done = function () {
+    b.textContent = '已复制';
+    b.classList.add('ok');
+    setTimeout(function () { b.textContent = '复制'; b.classList.remove('ok'); }, 1500);
+  };
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(t).then(done, function () { lpcopyFallback(t, done); });
+  } else {
+    lpcopyFallback(t, done);
+  }
+}
+</script>
 </body>
 </html>
 "#;

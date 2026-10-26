@@ -174,7 +174,7 @@ pub struct SharedFile {
     pub size: u64,
     /// mtime formatted "YYYY-MM-DD HH:MM" (server-local), descending-sort friendly
     pub modified: String,
-    /// Sniffed content kind (files only): text files get a 查看 link (?view=1 serves
-    /// them inline)
+    /// Sniffed content kind (files only): text files get a 查看 link (?view=1 opens
+    /// the HTML preview page with one-click copy)
     pub is_text: bool,
 }
