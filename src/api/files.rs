@@ -250,10 +250,12 @@ fn text_view_html(root: &std::path::Path, rel: &str) -> Option<String> {
         html_escape_into(&mut body, &text);
         body
     };
+    // href must be site-absolute: the view URL is /f/<dir>/<name>, and a relative
+    // href would resolve against <dir>/ and double every subdirectory segment
     Some(render_view_html(
         name,
         &body,
-        &crate::util::url_encode_path(rel),
+        &format!("/f/{}", crate::util::url_encode_path(rel)),
     ))
 }
 
