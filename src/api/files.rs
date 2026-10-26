@@ -133,6 +133,11 @@ fn sniff_is_text(path: &std::path::Path) -> bool {
     !buf[..n].contains(&0) && std::str::from_utf8(&buf[..n]).is_ok()
 }
 
+/// Patches above this size skip the colored HTML view and fall back to plain text —
+/// the HTML page is built in memory and unbounded otherwise
+#[cfg(feature = "ssr")]
+const PATCH_VIEW_MAX_BYTES: u64 = 4 * 1024 * 1024;
+
 /// Shapes /f responses so the two actions stay unambiguous:
 /// - plain link (click) → always `Content-Disposition: attachment`, i.e. download,
 ///   regardless of content
@@ -140,7 +145,8 @@ fn sniff_is_text(path: &std::path::Path) -> bool {
 ///   browsers display it for copy-paste; explicit text/plain is required because
 ///   Chrome/Firefox download octet-stream bodies. It also neutralizes uploaded
 ///   .html/.svg (rendered as source, no stored XSS). Binary files ignore `view`
-///   and download.
+///   and download. Patch/diff files instead get the colored HTML page
+///   ([patch_view_html]); `&raw=1` opts back out to plain text.
 ///
 /// Mounted inside the /f nest, so the URI path here has the /f prefix stripped and is
 /// the files_dir-relative path (percent-encoded); nested paths work the same as flat ones
@@ -151,13 +157,16 @@ pub async fn file_disposition(
     next: axum::middleware::Next,
 ) -> axum::response::Response {
     use axum::http::{header, HeaderValue, StatusCode};
+    use axum::response::IntoResponse;
 
     let is_get = matches!(req.method().as_str(), "GET" | "HEAD");
-    let wants_view = req
+    let query_flags = req
         .uri()
         .query()
-        .map(|q| q.split('&').any(|kv| kv == "view=1"))
-        .unwrap_or(false);
+        .map(|q| q.split('&').collect::<Vec<_>>())
+        .unwrap_or_default();
+    let wants_view = query_flags.iter().any(|kv| *kv == "view=1");
+    let wants_raw = query_flags.iter().any(|kv| *kv == "raw=1");
     let raw_rel = req.uri().path().trim_start_matches('/').to_string();
     let mut resp = next.run(req).await;
     if !is_get || !matches!(resp.status(), StatusCode::OK | StatusCode::PARTIAL_CONTENT) {
@@ -167,7 +176,13 @@ pub async fn file_disposition(
     if !valid_shared_rel_path(&rel) {
         return resp;
     }
-    if wants_view && sniff_is_text(&std::path::PathBuf::from(&state.config.files_dir).join(&rel)) {
+    let root = std::path::PathBuf::from(&state.config.files_dir);
+    if wants_view && sniff_is_text(&root.join(&rel)) {
+        if !wants_raw {
+            if let Some(html) = patch_view_html(&root, &rel) {
+                return axum::response::Html(html).into_response();
+            }
+        }
         resp.headers_mut().insert(
             header::CONTENT_TYPE,
             HeaderValue::from_static("text/plain; charset=utf-8"),
@@ -185,6 +200,185 @@ pub async fn file_disposition(
     }
     resp
 }
+
+/// Colored patch view for `?view=1`: reads the whole file (within
+/// [PATCH_VIEW_MAX_BYTES], strict UTF-8 — re-checks what the 4 KiB sniff only sampled)
+/// and returns the highlighted HTML page, or None to fall back to plain text
+#[cfg(feature = "ssr")]
+fn patch_view_html(root: &std::path::Path, rel: &str) -> Option<String> {
+    let path = root.join(rel);
+    let meta = std::fs::metadata(&path).ok()?;
+    if meta.len() > PATCH_VIEW_MAX_BYTES {
+        return None;
+    }
+    let text = std::fs::read_to_string(&path).ok()?;
+    let name = rel.rsplit('/').next().unwrap_or(rel);
+    if !looks_like_patch(name, &text) {
+        return None;
+    }
+    Some(render_patch_html(name, &text, &crate::util::url_encode_path(rel)))
+}
+
+/// Patch detection: *.patch / *.diff extensions count outright; otherwise sniff the
+/// first 64 lines for unified/git diff landmarks, so extensionless drops work without
+/// misfiring on ordinary text
+#[cfg(feature = "ssr")]
+fn looks_like_patch(name: &str, text: &str) -> bool {
+    if let Some(ext) = std::path::Path::new(name).extension().and_then(|e| e.to_str()) {
+        if ext.eq_ignore_ascii_case("patch") || ext.eq_ignore_ascii_case("diff") {
+            return true;
+        }
+    }
+    let mut prev_old_file = false;
+    for line in text.lines().take(64) {
+        if line.starts_with("diff --git ")
+            || line.starts_with("Index: ")
+            || line.starts_with("@@ -")
+        {
+            return true;
+        }
+        if prev_old_file && line.starts_with("+++ ") {
+            return true;
+        }
+        prev_old_file = line.starts_with("--- ");
+    }
+    false
+}
+
+/// Line class for the patch view. Git extended headers all render as meta, so the
+/// `+++`/`---` file headers must be tested before bare `+`/`-`
+#[cfg(feature = "ssr")]
+fn patch_line_class(line: &str) -> &'static str {
+    const GIT_HEADERS: [&str; 14] = [
+        "diff --git ",
+        "index ",
+        "old mode ",
+        "new mode ",
+        "new file mode ",
+        "deleted file mode ",
+        "similarity index ",
+        "dissimilarity index ",
+        "rename from ",
+        "rename to ",
+        "copy from ",
+        "copy to ",
+        "Binary files ",
+        "GIT binary patch",
+    ];
+    if line.starts_with("@@") {
+        "d-hunk"
+    } else if line.starts_with("+++")
+        || line.starts_with("---")
+        || line.starts_with('\\') // "\ No newline at end of file"
+        || line.starts_with("Only in ")
+        || GIT_HEADERS.iter().any(|h| line.starts_with(h))
+    {
+        "d-meta"
+    } else if line.starts_with('+') {
+        "d-add"
+    } else if line.starts_with('-') {
+        "d-del"
+    } else {
+        "d-ctx"
+    }
+}
+
+/// Escapes the characters that matter in text nodes (quotes never land in attribute
+/// values here)
+#[cfg(feature = "ssr")]
+fn html_escape_into(out: &mut String, s: &str) {
+    for c in s.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            _ => out.push(c),
+        }
+    }
+}
+
+/// Builds the page from [PATCH_VIEW_SHELL]. Replacements run body-last: file content
+/// is arbitrary, so no token inside it can be substituted
+#[cfg(feature = "ssr")]
+fn render_patch_html(name: &str, text: &str, download_href: &str) -> String {
+    let mut body = String::with_capacity(text.len() + text.len() / 4);
+    for line in text.lines() {
+        body.push_str("<span class=\"");
+        body.push_str(patch_line_class(line));
+        body.push_str("\">");
+        html_escape_into(&mut body, line);
+        body.push_str("</span>\n");
+    }
+    let mut title = String::new();
+    html_escape_into(&mut title, name);
+    PATCH_VIEW_SHELL
+        .replace("@DOWNLOAD@", download_href)
+        .replace(
+            "@RAW@",
+            &format!("{download_href}?view=1&raw=1"),
+        )
+        .replace("@TITLE@", &title)
+        .replace("@BODY@", &body)
+}
+
+/// Standalone colored-diff page for the /f view: inline CSS only, no site assets, so
+/// /f stays decoupled from the Leptos app; follows light/dark via prefers-color-scheme.
+/// @DOWNLOAD@/@RAW@/@TITLE@/@BODY@ are replaced per request
+#[cfg(feature = "ssr")]
+const PATCH_VIEW_SHELL: &str = r#"<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>@TITLE@ · leafpress</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font: 13px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    background: #ffffff; color: #1f2328;
+  }
+  header {
+    position: sticky; top: 0; z-index: 1;
+    display: flex; flex-wrap: wrap; gap: .35rem 1rem; align-items: baseline;
+    padding: .55rem 1rem; border-bottom: 1px solid #d1d9e0; background: #f6f8fa;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  header b { font-size: .95rem; overflow-wrap: anywhere; }
+  header .sp { flex: 1; }
+  header a { color: #0969da; text-decoration: none; white-space: nowrap; font-size: .85rem; }
+  header a:hover { text-decoration: underline; }
+  main { padding: 1rem; overflow-x: auto; }
+  pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .d-add { color: #1a7f37; background: #e6ffec; }
+  .d-del { color: #cf222e; background: #ffebe9; }
+  .d-hunk { color: #8250df; }
+  .d-meta { color: #59636e; font-weight: 600; }
+  .d-ctx { color: inherit; }
+  @media (prefers-color-scheme: dark) {
+    body { background: #0d1117; color: #e6edf3; }
+    header { background: #161b22; border-bottom-color: #30363d; }
+    header a { color: #4493f8; }
+    .d-add { color: #3fb950; background: #12261e; }
+    .d-del { color: #f85149; background: #2d1517; }
+    .d-hunk { color: #d2a8ff; }
+    .d-meta { color: #8b949e; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <b>@TITLE@</b>
+  <span class="sp"></span>
+  <a href="@DOWNLOAD@">下载</a>
+  <a href="@RAW@">纯文本</a>
+  <a href="/files">文件列表</a>
+</header>
+<main><pre>@BODY@</pre></main>
+</body>
+</html>
+"#;
 
 /// Token gate for the mutating /f handlers: config token unset → 403 (feature off),
 /// header mismatch → 401

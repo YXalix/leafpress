@@ -64,7 +64,7 @@ pub fn FilesPage() -> impl IntoView {
         <div class="files-page">
             <h1>"文件"</h1>
             <p class="muted">
-                "公开文件分发目录：点击文件名下载，点目录名进入子目录；文本文件可点「查看」在新标签页浏览和复制。"
+                "公开文件分发目录：点击文件名下载，点目录名进入子目录；文本文件可点「查看」在新标签页浏览和复制，patch/diff 自动彩色高亮。"
             </p>
             {move || files_crumb("/files".into(), dir.get())}
             <Suspense fallback=|| view! { <p class="muted">"文件列表加载中…"</p> }>
