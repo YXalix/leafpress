@@ -146,7 +146,13 @@ const PATCH_VIEW_MAX_BYTES: u64 = 4 * 1024 * 1024;
 ///   Chrome/Firefox download octet-stream bodies. It also neutralizes uploaded
 ///   .html/.svg (rendered as source, no stored XSS). Binary files ignore `view`
 ///   and download. Patch/diff files instead get the colored HTML page
-///   ([patch_view_html]); `&raw=1` opts back out to plain text.
+///   ([patch_view_html]), answered directly without consulting ServeDir — a stale
+///   cached plain-text view then revalidates into fresh HTML instead of pinning a
+///   304. `&raw=1` opts back out to plain text.
+///
+/// View responses are `Cache-Control: no-cache`: the files never change in place,
+/// but the view *format* can change across deploys, and a heuristically-fresh cached
+/// view would never revalidate to pick the new one up.
 ///
 /// Mounted inside the /f nest, so the URI path here has the /f prefix stripped and is
 /// the files_dir-relative path (percent-encoded); nested paths work the same as flat ones
@@ -160,33 +166,57 @@ pub async fn file_disposition(
     use axum::response::IntoResponse;
 
     let is_get = matches!(req.method().as_str(), "GET" | "HEAD");
-    let query_flags = req
+    let query_flags: Vec<&str> = req
         .uri()
         .query()
-        .map(|q| q.split('&').collect::<Vec<_>>())
+        .map(|q| q.split('&').collect())
         .unwrap_or_default();
     let wants_view = query_flags.iter().any(|kv| *kv == "view=1");
     let wants_raw = query_flags.iter().any(|kv| *kv == "raw=1");
-    let raw_rel = req.uri().path().trim_start_matches('/').to_string();
+    let rel = pct_decode(req.uri().path().trim_start_matches('/'));
+
+    let root = std::path::PathBuf::from(&state.config.files_dir);
+    if is_get
+        && wants_view
+        && valid_shared_rel_path(&rel)
+        && sniff_is_text(&root.join(&rel))
+    {
+        if !wants_raw {
+            if let Some(html) = patch_view_html(&root, &rel) {
+                let mut resp = axum::response::Html(html).into_response();
+                resp.headers_mut().insert(
+                    header::CACHE_CONTROL,
+                    HeaderValue::from_static("no-cache"),
+                );
+                return resp;
+            }
+        }
+        let mut resp = next.run(req).await;
+        let status = resp.status();
+        if matches!(status, StatusCode::OK | StatusCode::PARTIAL_CONTENT) {
+            let headers = resp.headers_mut();
+            headers.insert(
+                header::CONTENT_TYPE,
+                HeaderValue::from_static("text/plain; charset=utf-8"),
+            );
+            headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+        } else if status == StatusCode::NOT_MODIFIED {
+            // nothing to rewrite on a 304, but do refresh the cached entry's policy:
+            // this response is what tells the browser to revalidate again next time
+            // (and thus ever see the current view format)
+            resp.headers_mut().insert(
+                header::CACHE_CONTROL,
+                HeaderValue::from_static("no-cache"),
+            );
+        }
+        return resp;
+    }
+
     let mut resp = next.run(req).await;
     if !is_get || !matches!(resp.status(), StatusCode::OK | StatusCode::PARTIAL_CONTENT) {
         return resp;
     }
-    let rel = pct_decode(&raw_rel);
     if !valid_shared_rel_path(&rel) {
-        return resp;
-    }
-    let root = std::path::PathBuf::from(&state.config.files_dir);
-    if wants_view && sniff_is_text(&root.join(&rel)) {
-        if !wants_raw {
-            if let Some(html) = patch_view_html(&root, &rel) {
-                return axum::response::Html(html).into_response();
-            }
-        }
-        resp.headers_mut().insert(
-            header::CONTENT_TYPE,
-            HeaderValue::from_static("text/plain; charset=utf-8"),
-        );
         return resp;
     }
     // attachment filename is the basename: browsers treat it as one file's name
@@ -202,8 +232,10 @@ pub async fn file_disposition(
 }
 
 /// Colored patch view for `?view=1`: reads the whole file (within
-/// [PATCH_VIEW_MAX_BYTES], strict UTF-8 — re-checks what the 4 KiB sniff only sampled)
-/// and returns the highlighted HTML page, or None to fall back to plain text
+/// [PATCH_VIEW_MAX_BYTES]) and returns the highlighted HTML page, or None to fall
+/// back to plain text. UTF-8 is decoded lossily — one stray byte degrades to U+FFFD
+/// in the view instead of dropping the whole file to plain text (the 4 KiB sniff has
+/// only sampled the head)
 #[cfg(feature = "ssr")]
 fn patch_view_html(root: &std::path::Path, rel: &str) -> Option<String> {
     let path = root.join(rel);
@@ -211,7 +243,8 @@ fn patch_view_html(root: &std::path::Path, rel: &str) -> Option<String> {
     if meta.len() > PATCH_VIEW_MAX_BYTES {
         return None;
     }
-    let text = std::fs::read_to_string(&path).ok()?;
+    let bytes = std::fs::read(&path).ok()?;
+    let text = String::from_utf8_lossy(&bytes).into_owned();
     let name = rel.rsplit('/').next().unwrap_or(rel);
     if !looks_like_patch(name, &text) {
         return None;
