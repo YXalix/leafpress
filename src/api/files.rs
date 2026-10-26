@@ -150,9 +150,12 @@ const PATCH_VIEW_MAX_BYTES: u64 = 4 * 1024 * 1024;
 ///   cached plain-text view then revalidates into fresh HTML instead of pinning a
 ///   304. `&raw=1` opts back out to plain text.
 ///
-/// View responses are `Cache-Control: no-cache`: the files never change in place,
-/// but the view *format* can change across deploys, and a heuristically-fresh cached
-/// view would never revalidate to pick the new one up.
+/// View responses: the patch HTML page is `Cache-Control: no-cache` (cache but
+/// always revalidate) because its *format* evolves with deploys and a
+/// heuristically-fresh cached copy would pin the old one — the exact bug where
+/// pre-deploy views stayed plain text forever. The plain-text view keeps default
+/// caching instead: its format never changes, and ServeDir's Last-Modified already
+/// drives cheap conditional 304s.
 ///
 /// Mounted inside the /f nest, so the URI path here has the /f prefix stripped and is
 /// the files_dir-relative path (percent-encoded); nested paths work the same as flat ones
@@ -191,22 +194,13 @@ pub async fn file_disposition(
                 return resp;
             }
         }
+        // plain text: format is stable, so keep stock caching — ServeDir's
+        // Last-Modified conditional requests already make re-checks a cheap 304
         let mut resp = next.run(req).await;
-        let status = resp.status();
-        if matches!(status, StatusCode::OK | StatusCode::PARTIAL_CONTENT) {
-            let headers = resp.headers_mut();
-            headers.insert(
+        if matches!(resp.status(), StatusCode::OK | StatusCode::PARTIAL_CONTENT) {
+            resp.headers_mut().insert(
                 header::CONTENT_TYPE,
                 HeaderValue::from_static("text/plain; charset=utf-8"),
-            );
-            headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
-        } else if status == StatusCode::NOT_MODIFIED {
-            // nothing to rewrite on a 304, but do refresh the cached entry's policy:
-            // this response is what tells the browser to revalidate again next time
-            // (and thus ever see the current view format)
-            resp.headers_mut().insert(
-                header::CACHE_CONTROL,
-                HeaderValue::from_static("no-cache"),
             );
         }
         return resp;
