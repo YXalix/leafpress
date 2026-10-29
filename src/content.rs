@@ -271,7 +271,21 @@ pub fn spawn_watcher(content_dir: PathBuf, index: SharedIndex) {
             eprintln!("[content] failed to watch {content_dir:?}: {e}");
             return;
         }
-        while rx.recv().is_ok() {
+        while let Ok(item) = rx.recv() {
+            // Rescan only on real changes. notify also reports OPEN for watched files the
+            // scanner itself reads, so treating reads as changes makes hot-reload feed
+            // itself in a loop; writes always carry MODIFY, so skipping reads is safe
+            let change = match &item {
+                Ok(ev) => !matches!(ev.kind, notify::EventKind::Access(_)),
+                Err(e) => {
+                    eprintln!("[content] watcher error: {e}");
+                    std::thread::sleep(std::time::Duration::from_secs(1));
+                    continue;
+                }
+            };
+            if !change {
+                continue;
+            }
             // Simple debounce: coalesce events within 150ms
             std::thread::sleep(std::time::Duration::from_millis(150));
             while rx.try_recv().is_ok() {}
