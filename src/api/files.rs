@@ -181,18 +181,12 @@ pub async fn file_disposition(
     let rel = pct_decode(req.uri().path().trim_start_matches('/'));
 
     let root = std::path::PathBuf::from(&state.config.files_dir);
-    if is_get
-        && wants_view
-        && valid_shared_rel_path(&rel)
-        && sniff_is_text(&root.join(&rel))
-    {
+    if is_get && wants_view && valid_shared_rel_path(&rel) && sniff_is_text(&root.join(&rel)) {
         if !wants_raw {
             if let Some(html) = text_view_html(&root, &rel) {
                 let mut resp = axum::response::Html(html).into_response();
-                resp.headers_mut().insert(
-                    header::CACHE_CONTROL,
-                    HeaderValue::from_static("no-cache"),
-                );
+                resp.headers_mut()
+                    .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
                 return resp;
             }
         }
@@ -264,7 +258,10 @@ fn text_view_html(root: &std::path::Path, rel: &str) -> Option<String> {
 /// misfiring on ordinary text
 #[cfg(feature = "ssr")]
 fn looks_like_patch(name: &str, text: &str) -> bool {
-    if let Some(ext) = std::path::Path::new(name).extension().and_then(|e| e.to_str()) {
+    if let Some(ext) = std::path::Path::new(name)
+        .extension()
+        .and_then(|e| e.to_str())
+    {
         if ext.eq_ignore_ascii_case("patch") || ext.eq_ignore_ascii_case("diff") {
             return true;
         }
@@ -364,10 +361,7 @@ fn render_view_html(name: &str, body: &str, download_href: &str) -> String {
     html_escape_into(&mut title, name);
     TEXT_VIEW_SHELL
         .replace("@DOWNLOAD@", download_href)
-        .replace(
-            "@RAW@",
-            &format!("{download_href}?view=1&raw=1"),
-        )
+        .replace("@RAW@", &format!("{download_href}?view=1&raw=1"))
         .replace("@TITLE@", &title)
         .replace("@BODY@", body)
 }

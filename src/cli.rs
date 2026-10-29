@@ -475,7 +475,10 @@ fn check_ssh_remote(r: &mut Report, repo: &Path) {
             known_hosts.display()
         ));
     }
-    if ["id_ed25519", "id_rsa"].iter().any(|k| ssh_dir.join(k).is_file()) {
+    if ["id_ed25519", "id_rsa"]
+        .iter()
+        .any(|k| ssh_dir.join(k).is_file())
+    {
         r.ok(format!(
             "SSH remote: private key present in {}",
             ssh_dir.display()

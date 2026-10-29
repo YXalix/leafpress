@@ -94,7 +94,11 @@ impl Config {
         let Some(base) = config_path.parent().filter(|p| !p.as_os_str().is_empty()) else {
             return;
         };
-        for p in [&mut self.content_dir, &mut self.database, &mut self.files_dir] {
+        for p in [
+            &mut self.content_dir,
+            &mut self.database,
+            &mut self.files_dir,
+        ] {
             if !std::path::Path::new(p.as_str()).is_absolute() {
                 *p = base.join(p.as_str()).to_string_lossy().into_owned();
             }
