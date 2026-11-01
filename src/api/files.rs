@@ -11,6 +11,8 @@ use leptos::prelude::*;
 use crate::state::AppState;
 #[cfg(feature = "ssr")]
 use axum::extract::{Path, State};
+#[cfg(feature = "ssr")]
+use comrak::nodes::NodeValue;
 
 use crate::types::SharedFile;
 
@@ -143,8 +145,9 @@ const TEXT_VIEW_MAX_BYTES: u64 = 4 * 1024 * 1024;
 ///   regardless of content
 /// - `?view=1` → text data (NUL-free UTF-8 first 4 KiB) serves as a self-contained
 ///   HTML preview page ([text_view_html]): header bar with one-click copy plus
-///   download/raw/listing links, patch/diff bodies line-highlighted, other text as a
-///   plain block. `&raw=1` opts out to inline text/plain; binary files ignore `view`
+///   download/raw/listing links, markdown rendered to formatted HTML, patch/diff
+///   bodies line-highlighted, other text as a plain block. `&raw=1` opts out to
+///   inline text/plain; binary files ignore `view`
 ///   and download. Explicit text/plain is required on the raw path because
 ///   Chrome/Firefox download octet-stream bodies; it also neutralizes uploaded
 ///   .html/.svg (rendered as source, no stored XSS — the preview page escapes too).
@@ -225,8 +228,9 @@ pub async fn file_disposition(
 /// and returns the self-contained preview page, or None to fall back to plain text.
 /// UTF-8 is decoded lossily — one stray byte degrades to U+FFFD in the view instead
 /// of dropping the whole file to plain text (the 4 KiB sniff has only sampled the
-/// head). Patch/diff content is line-highlighted; other text renders as one plain
-/// block
+/// head). Markdown is rendered; patch/diff content is line-highlighted; other text
+/// renders as one plain block. Each body supplies its own wrapper (the shell's
+/// <main> is content-agnostic)
 #[cfg(feature = "ssr")]
 fn text_view_html(root: &std::path::Path, rel: &str) -> Option<String> {
     let path = root.join(rel);
@@ -237,11 +241,20 @@ fn text_view_html(root: &std::path::Path, rel: &str) -> Option<String> {
     let bytes = std::fs::read(&path).ok()?;
     let text = String::from_utf8_lossy(&bytes).into_owned();
     let name = rel.rsplit('/').next().unwrap_or(rel);
-    let body = if looks_like_patch(name, &text) {
-        patch_body(&text)
+    let body = if is_markdown(name) {
+        markdown_body(&text)
     } else {
-        let mut body = String::with_capacity(text.len() + text.len() / 16);
-        html_escape_into(&mut body, &text);
+        let inner = if looks_like_patch(name, &text) {
+            patch_body(&text)
+        } else {
+            let mut inner = String::with_capacity(text.len() + text.len() / 16);
+            html_escape_into(&mut inner, &text);
+            inner
+        };
+        let mut body = String::with_capacity(inner.len() + 11);
+        body.push_str("<pre>");
+        body.push_str(&inner);
+        body.push_str("</pre>");
         body
     };
     // href must be site-absolute: the view URL is /f/<dir>/<name>, and a relative
@@ -251,6 +264,74 @@ fn text_view_html(root: &std::path::Path, rel: &str) -> Option<String> {
         &body,
         &format!("/f/{}", crate::util::url_encode_path(rel)),
     ))
+}
+
+/// Markdown detection: .md / .markdown extensions only — no content sniffing, which
+/// would misfire on ordinary prose that happens to contain `#` or `*`
+#[cfg(feature = "ssr")]
+fn is_markdown(name: &str) -> bool {
+    std::path::Path::new(name)
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("md") || e.eq_ignore_ascii_case("markdown"))
+}
+
+/// Rendered body for a markdown preview. Shares comrak with the blog renderer but
+/// deliberately not its options: these files are uploads viewed publicly, so
+/// `render.unsafe_` stays off (embedded HTML comes out as escaped comments, matching
+/// the preview page's escape-everything stance) and there is no KaTeX. Link/image
+/// URLs are additionally neutralized when they carry a dangerous scheme
+/// (javascript: and friends — comrak passes those through even with unsafe_ off).
+/// A hidden `#lpsrc` <pre> carries the escaped source so the copy button stays
+/// byte-faithful to the file rather than to the rendered text
+#[cfg(feature = "ssr")]
+fn markdown_body(text: &str) -> String {
+    let mut opts = comrak::Options::default();
+    opts.extension.table = true;
+    opts.extension.tasklist = true;
+    opts.extension.strikethrough = true;
+    opts.extension.autolink = true;
+    opts.render.github_pre_lang = true;
+    let arena = comrak::Arena::new();
+    let root = comrak::parse_document(&arena, text, &opts);
+    for node in root.descendants() {
+        let mut data = node.data.borrow_mut();
+        let url = match &mut data.value {
+            NodeValue::Link(l) => &mut l.url,
+            NodeValue::Image(i) => &mut i.url,
+            _ => continue,
+        };
+        if !safe_url(url) {
+            *url = "#".into();
+        }
+    }
+    let mut buf = Vec::new();
+    comrak::html::format_document(root, &opts, &mut buf).expect("comrak render");
+    let html = String::from_utf8(buf).expect("comrak output is utf-8");
+    let mut body = String::with_capacity(html.len() + text.len() + text.len() / 16 + 64);
+    body.push_str("<div class=\"md\">");
+    body.push_str(&html);
+    body.push_str("</div>\n<pre id=\"lpsrc\" hidden>");
+    html_escape_into(&mut body, text);
+    body.push_str("</pre>");
+    body
+}
+
+/// True when a link/image URL is safe to keep in the rendered markdown. Relative
+/// references and bare fragments have no scheme; a "scheme" candidate containing
+/// / ? # is a relative path like "a/b:c" per RFC 3986. Only http/https/mailto pass
+#[cfg(feature = "ssr")]
+fn safe_url(url: &str) -> bool {
+    let Some((head, _)) = url.split_once(':') else {
+        return true;
+    };
+    if head.is_empty() || head.contains(['/', '?', '#']) {
+        return true;
+    }
+    matches!(
+        head.to_ascii_lowercase().as_str(),
+        "http" | "https" | "mailto"
+    )
 }
 
 /// Patch detection: *.patch / *.diff extensions count outright; otherwise sniff the
@@ -368,8 +449,9 @@ fn render_view_html(name: &str, body: &str, download_href: &str) -> String {
 
 /// Standalone text-preview page for the /f view: inline CSS/JS only, no site assets,
 /// so /f stays decoupled from the Leptos app; follows light/dark via
-/// prefers-color-scheme. The copy button reads the <pre> textContent, which
-/// [text_view_html] keeps byte-faithful to the viewable text
+/// prefers-color-scheme. The copy button reads #lpsrc when present (markdown: the
+/// hidden source <pre>) and falls back to the first <pre> in main; either way
+/// [text_view_html] keeps it byte-faithful to the viewable text
 /// @DOWNLOAD@/@RAW@/@TITLE@/@BODY@ are replaced per request
 #[cfg(feature = "ssr")]
 const TEXT_VIEW_SHELL: &str = r#"<!doctype html>
@@ -404,6 +486,39 @@ const TEXT_VIEW_SHELL: &str = r#"<!doctype html>
   header button.ok { color: #1a7f37; }
   main { padding: 1rem; overflow-x: auto; }
   pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .md {
+    max-width: 60rem;
+    font: 15px/1.7 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  }
+  .md > :first-child { margin-top: 0; }
+  .md h1, .md h2, .md h3, .md h4, .md h5, .md h6 {
+    margin: 1.5em 0 .6em; line-height: 1.3; overflow-wrap: anywhere;
+  }
+  .md h1, .md h2 { border-bottom: 1px solid #d1d9e0; padding-bottom: .3em; }
+  .md p { margin: .8em 0; }
+  .md a { color: #0969da; }
+  .md code {
+    font: .9em ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    background: #f6f8fa; border-radius: 4px; padding: .15em .35em;
+    overflow-wrap: anywhere;
+  }
+  .md pre {
+    background: #f6f8fa; border-radius: 6px; padding: .8rem 1rem;
+    white-space: pre; overflow-x: auto;
+  }
+  .md pre code { background: none; padding: 0; font-size: 13px; }
+  .md blockquote {
+    margin: .8em 0; padding: 0 1em;
+    border-left: 4px solid #d1d9e0; color: #59636e;
+  }
+  .md table { border-collapse: collapse; margin: .8em 0; }
+  .md th, .md td { border: 1px solid #d1d9e0; padding: .35em .8em; }
+  .md th { background: #f6f8fa; }
+  .md img { max-width: 100%; }
+  .md hr { border: 0; border-top: 2px solid #d1d9e0; margin: 1.5em 0; }
+  .md ul, .md ol { padding-left: 1.6em; }
+  .md li { margin: .25em 0; }
+  .md input[type=checkbox] { margin-right: .4em; }
   .d-add { color: #1a7f37; background: #e6ffec; }
   .d-del { color: #cf222e; background: #ffebe9; }
   .d-hunk { color: #8250df; }
@@ -419,6 +534,11 @@ const TEXT_VIEW_SHELL: &str = r#"<!doctype html>
     .d-del { color: #f85149; background: #2d1517; }
     .d-hunk { color: #d2a8ff; }
     .d-meta { color: #8b949e; }
+    .md a { color: #4493f8; }
+    .md code, .md pre, .md th { background: #161b22; }
+    .md h1, .md h2, .md th, .md td { border-color: #30363d; }
+    .md blockquote { border-left-color: #30363d; color: #8b949e; }
+    .md hr { border-top-color: #30363d; }
   }
 </style>
 </head>
@@ -431,7 +551,7 @@ const TEXT_VIEW_SHELL: &str = r#"<!doctype html>
   <a href="@RAW@">纯文本</a>
   <a href="/files">文件列表</a>
 </header>
-<main><pre>@BODY@</pre></main>
+<main>@BODY@</main>
 <script>
 function lpcopyFallback(t, done) {
   var a = document.createElement('textarea');
@@ -444,7 +564,8 @@ function lpcopyFallback(t, done) {
   document.body.removeChild(a);
 }
 function lpcopy(b) {
-  var t = document.querySelector('main pre').textContent;
+  var el = document.getElementById('lpsrc') || document.querySelector('main pre');
+  var t = el.textContent;
   var done = function () {
     b.textContent = '已复制';
     b.classList.add('ok');
