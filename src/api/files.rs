@@ -120,7 +120,8 @@ fn pct_decode(s: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
-/// NUL-free valid UTF-8 in the first 4 KiB → treat as text (empty files count as text)
+/// NUL-free UTF-8 in the first 4 KiB → treat as text (empty files count as text); an
+/// incomplete multibyte sequence at the buffer edge still counts (sampling artifact)
 #[cfg(feature = "ssr")]
 fn sniff_is_text(path: &std::path::Path) -> bool {
     use std::io::Read;
@@ -132,7 +133,17 @@ fn sniff_is_text(path: &std::path::Path) -> bool {
         Ok(n) => n,
         Err(_) => return false,
     };
-    !buf[..n].contains(&0) && std::str::from_utf8(&buf[..n]).is_ok()
+    if buf[..n].contains(&0) {
+        return false;
+    }
+    match std::str::from_utf8(&buf[..n]) {
+        Ok(_) => true,
+        // a valid sequence prefix cut by the 4096-byte sampling edge (error_len is
+        // None exactly for an incomplete tail) is a truncation artifact, not a bad
+        // file — CJK text lands a multibyte char across the boundary most of the time
+        Err(e) if e.error_len().is_none() => true,
+        Err(_) => false,
+    }
 }
 
 /// Text files above this size skip the HTML preview and fall back to plain text —

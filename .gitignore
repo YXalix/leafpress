@@ -4,3 +4,5 @@ site.db-*
 config.toml
 # Content lives in a separate repo (cloned here); not part of this repo
 content/
+# Public file-sharing dir is runtime data on the server; not part of this repo
+files/
